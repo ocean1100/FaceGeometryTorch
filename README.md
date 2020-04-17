@@ -1,14 +1,4 @@
-## FLAME: Faces Learned with an Articulated Model and Expressions (TF)
-
-[FLAME](http://flame.is.tue.mpg.de/) is a lightweight and expressive generic head model learned from over 33,000 of accurately aligned 3D scans. This repository provides sample Tensorflow code to experiment with the FLAME model. Parts of the repository are adapted from the [Chumpy](https://github.com/mattloper/chumpy)-based [FLAME-fitting repository](https://github.com/Rubikplayer/flame-fitting). 
-
-<p align="center"> 
-<img src="gifs/model_variations.gif">
-</p>
-
-FLAME combines a linear identity shape space (trained from 3800 scans of human heads) with an articulated neck, jaw, and eyeballs, pose-dependent corrective blendshapes, and additional global expression blendshapes. For details please about the model, please see the [scientific publication](https://ps.is.tuebingen.mpg.de/uploads_file/attachment/attachment/400/paper.pdf) and the [supplementary video](https://youtu.be/36rPTkhiJTM).
-
-### Content
+## Face Geometry Reconstrucion (PyTorch)
 
 This repository include scripts to
 1) Sample and visualize 3D flame models
