@@ -43,14 +43,25 @@ def fit_flame_to_images(images, texture_mapping, input_folder, out_path):
 
     # Initialize the optimizer once, so that consecutive optimization routines will have a warm start
     vars = [scale, flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
-    all_flame_params_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=500)
+    all_flame_params_optimizer = torch.optim.LBFGS(vars, max_iter=500, line_search_fn = 'strong_wolfe')
+    first_fit = True
     for img in images:
         target_img_path = os.path.join(input_folder,img)
         print ('Fitting image at ', target_img_path)
         target_img = cv2.imread(target_img_path)
+        time_before = time.time()
         target_2d_lmks = dlib_get_landmarks(target_img, rect, face_landmarks_predictor)
         # Fit with all of Flame parameters parameters
+        time_before = time.time()
         vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_2d_lmks, all_flame_params_optimizer)
+        landmarks_and_fitting_time = time.time() - time_before
+        print ('Landmarks plus fitting took ', landmarks_and_fitting_time)
+        if first_fit:
+            opt_params = all_flame_params_optimizer.param_groups[0]
+            opt_params['tolerance_change'] = 1e-4 # Could probably make it real time
+            opt_params['tolerance_grad'] = 1e-3 # Could probably make it real time
+            #opt_params['max_iter'] = 10
+            first_fit = False
         
         out_texture_img_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.png')
         result_mesh = get_weak_perspective_textured_mesh(vertices, faces, target_img, texture_mapping, result_scale, out_texture_img_fname)
