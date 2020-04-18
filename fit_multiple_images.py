@@ -9,7 +9,7 @@ import cv2
 from psbody.mesh import Mesh
 from psbody.mesh.meshviewer import MeshViewers
 from fitting.landmarks_fitting import *
-import timer
+import time
 
 def fit_flame_to_images(images, texture_mapping, input_folder, out_path):
     if not os.path.exists(out_path):
