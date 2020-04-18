@@ -19,14 +19,12 @@ FIT_2D_DEBUG_MODE = False
 def fit_flame_to_2D_landmarks(flamelayer, scale, target_img, target_2d_lmks, optimizer):
     '''
     Fit FLAME to 2D landmarks
+    :param flamelayer           Flame parametric model
+    :param scale                Camera scale parameter (weak prespective camera)
     :param target_img           target 2D image
     :param target_2d_lmks:      target 2D landmarks provided as (num_lmks x 3) matrix
-    :param model_fname:      saved Tensorflow FLAME model
-    :param weights:             weights of the individual objective functions
-    :return: a mesh with the fitting results
+    :return: The mesh vertices and the weak prespective camera parameter (scale)
     '''
-    # Mirror landmark y-coordinates
-
     torch_target_2d_lmks = torch.from_numpy(target_2d_lmks).cuda()
     factor = max(max(target_2d_lmks[:,0]) - min(target_2d_lmks[:,0]),max(target_2d_lmks[:,1]) - min(target_2d_lmks[:,1]))
 
@@ -68,9 +66,11 @@ def get_landmarks_with_dlib(target_img, detector, predictor):
         print ('Error: could not locate face')
     shape = predictor(gray, rects[0])
     landmarks2D = face_utils.shape_to_np(shape)[17:]
+    # Mirror landmark y-coordinates
+    landmarks2D[:,1] = target_img.shape[0]-landmarks2D[:,1]
     return landmarks2D
 
-def run_2d_lmk_fitting(texture_mapping, target_img_path, out_path):
+def fit_geometry_and_texture_to_2D_landmarks(texture_mapping, target_img_path, out_path):
     if not os.path.exists(target_img_path):
         print('Target image not found - s' % target_img_path)
         return
@@ -84,8 +84,6 @@ def run_2d_lmk_fitting(texture_mapping, target_img_path, out_path):
     target_2d_lmks = get_landmarks_with_dlib(target_img, detector, predictor)
     shape_params = Variable(torch.zeros((config.batch_size,300),dtype=torch.float32).cuda(), requires_grad=True)
 
-    target_2d_lmks[:,1] = target_img.shape[0]-target_2d_lmks[:,1]
-
     flamelayer = FlameLandmarks(config,target_2d_lmks)
     flamelayer.cuda()
 
@@ -96,31 +94,17 @@ def run_2d_lmk_fitting(texture_mapping, target_img_path, out_path):
     # Fit only rigid motion
     vars = [scale, flamelayer.transl, flamelayer.global_rot] # Optimize for global scale, translation and rotation
     rigid_scale_optimizer = torch.optim.LBFGS(vars, tolerance_change=5e-6, max_iter=500)
-    np_verts, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_img, target_2d_lmks, rigid_scale_optimizer)
+    vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_img, target_2d_lmks, rigid_scale_optimizer)
 
     # Fit with all parameters
     vars = [scale, flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
     all_flame_params_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500)
-    np_verts, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_img, target_2d_lmks, all_flame_params_optimizer)
+    vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_img, target_2d_lmks, all_flame_params_optimizer)
 
     faces = flamelayer.faces
-    result_mesh = Mesh(np_verts, faces)
-    if sys.version_info >= (3, 0):
-        texture_data = np.load(texture_mapping, allow_pickle=True, encoding='latin1').item()
-    else:
-        texture_data = np.load(texture_mapping, allow_pickle=True).item()
-    texture_map = compute_texture_map(target_img, result_mesh, result_scale, texture_data)
-    
+    out_texture_img_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.png')
+    result_mesh = get_weak_perspective_textured_mesh(vertices, faces, target_img, texture_mapping, result_scale, out_texture_img_fname)
     out_mesh_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.obj')
-    out_img_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.png')
-
-
-    cv2.imwrite(out_img_fname, texture_map)
-    result_mesh.set_vertex_colors('white')
-    result_mesh.vt = texture_data['vt']
-    result_mesh.ft = texture_data['ft']
-    result_mesh.set_texture_image(out_img_fname)
-
     result_mesh.write_obj(out_mesh_fname)
     np.save(os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '_scale.npy'), result_scale)
 
@@ -153,4 +137,4 @@ if __name__ == '__main__':
     config.flame_model_path = './model/male_model.pkl'
 
     print('Running 2D landmark fitting')
-    run_2d_lmk_fitting(config.texture_mapping, config.target_img_path, config.out_path)
+    fit_geometry_and_texture_to_2D_landmarks(config.texture_mapping, config.target_img_path, config.out_path)

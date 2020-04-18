@@ -1,5 +1,29 @@
 import numpy as np
 import torch
+from psbody.mesh import Mesh
+import cv2
+import sys
+
+
+def get_weak_perspective_textured_mesh(vertices, faces, target_img, texture_mapping_data, scale, out_texture_img_fname):
+    '''
+    Gets vertices, faces, a target img, texture mapping parameters and the weak prespective camera parameters (scale)
+    ,saves a texture image at out_texture_img_fname and return a Mesh model
+    '''
+    result_mesh = Mesh(vertices, faces)
+    if sys.version_info >= (3, 0):
+        texture_data = np.load(texture_mapping_data, allow_pickle=True, encoding='latin1').item()
+    else:
+        texture_data = np.load(texture_mapping_data, allow_pickle=True).item()
+    texture_map = compute_texture_map(target_img, result_mesh, scale, texture_data)
+    
+    cv2.imwrite(out_texture_img_fname, texture_map)
+    result_mesh.set_vertex_colors('white')
+    result_mesh.vt = texture_data['vt']
+    result_mesh.ft = texture_data['ft']
+    result_mesh.set_texture_image(out_texture_img_fname)
+
+    return result_mesh
 
 # Weak persepctive camera with a fixed camera location 
 #   (otherwise need to add some translation before the scaling). 
