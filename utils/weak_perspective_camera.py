@@ -1,4 +1,18 @@
 import numpy as np
+import torch
+
+# Weak persepctive camera with a fixed camera location 
+#   (otherwise need to add some translation before the scaling). 
+# Thus, only needs scale. 
+#TODO: Possibly replace it by other camera models in different differntiable renders(as in pyTorch3D)
+def torch_project_points_weak_perspective(points, scale):
+    '''
+    weak perspective camera
+    '''
+    # camera realted constant buffers
+    cam_eye = torch.eye(2, m=3, dtype=points.dtype).cuda()
+    mul_res = torch.mm(cam_eye, points.t()).t() 
+    return mul_res * scale.expand_as(mul_res)
 
 def compute_texture_map(source_img, target_mesh, target_scale, texture_data):
     '''
@@ -37,3 +51,8 @@ def compute_texture_map(source_img, target_mesh, target_scale, texture_data):
         if x > 0 and x < source_img.shape[1] and y > 0 and y < source_img.shape[0]:
             texture[y_coords[valid_pixel_ids[i]].astype(int), x_coords[valid_pixel_ids[i]].astype(int), :3] = source_img[y, x]
     return texture
+
+def init_weak_prespective_camera_scale_from_landmarks(lmks_3d, target_2d_lmks):
+    s2d = np.mean(np.linalg.norm(target_2d_lmks-np.mean(target_2d_lmks, axis=0), axis=1))
+    s3d = torch.mean(torch.sqrt(torch.sum(((lmks_3d-torch.mean(lmks_3d, axis=0))**2).narrow(1,0,2)[:, :2], axis=1)))
+    return s2d/s3d

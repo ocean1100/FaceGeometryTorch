@@ -11,7 +11,7 @@ FlameDecoder (vertices and faces from flame parameters) and FlameLandmarks class
 
 class FlameLandmarks(nn.Module):
     """
-    This class generates a differentiable Flame vertices, landmarks (3D and 2D) and a weak prespective camera parameter (scale).
+    This class generates a differentiable Flame vertices and 3D landmarks.
     TODO: This class is written to support batches, but in practice was only tested on optimizing a single Flame model at time.
     """
     def __init__(self, config, init_target_2d_lmks, weights):
@@ -26,7 +26,6 @@ class FlameLandmarks(nn.Module):
 
         self.init_flame_parameters(config)
         self.init_flame_buffers(config)
-        self.init_camera_parameters(init_target_2d_lmks)
 
     def forward(self):
         """
@@ -37,11 +36,10 @@ class FlameLandmarks(nn.Module):
                 flame_reg_loss: A template regularizer loss - measures deviation of the flame parameters from the mean shape
         """
         vertices, landmarks_3D = self.get_vertices_and_3D_landmarks()
-        landmarkd_2D = self.torch_project_points(landmarks_3D)
 
         flame_reg_loss = self.flame_regularizer_loss(vertices)
 
-        return vertices, landmarks_3D, landmarkd_2D, flame_reg_loss
+        return vertices, landmarks_3D, flame_reg_loss
 
     def init_flame_parameters(self, config):
         
@@ -64,9 +62,6 @@ class FlameLandmarks(nn.Module):
         
 
         default_transl = torch.zeros((self.batch_size,3))
-        self.register_parameter('transl', nn.Parameter(default_transl, requires_grad = True))
-
-        default_scale = torch.ones((self.batch_size,1))
         self.register_parameter('transl', nn.Parameter(default_transl, requires_grad = True))
 
         # Eyeball and neck rotation
@@ -122,21 +117,6 @@ class FlameLandmarks(nn.Module):
         self.register_buffer('lmk_bary_coords',
                              torch.tensor(lmk_bary_coords, dtype=self.dtype))
 
-        
-        
-        # camera realted constant buffers
-        self.register_buffer('cam_eye', torch.eye(2, m=3, dtype=self.dtype))
-
-    def init_camera_parameters(self, init_target_2d_lmks):
-        initial_scale = self.get_init_scale(init_target_2d_lmks)
-        self.register_parameter('scale', nn.Parameter(to_tensor(initial_scale, dtype=self.dtype),
-                                                            requires_grad=True))
-    def get_init_scale(self, target_2d_lmks):
-        vertice, lmks_3d  = self.get_vertices_and_3D_landmarks()
-        s2d = np.mean(np.linalg.norm(target_2d_lmks-np.mean(target_2d_lmks, axis=0), axis=1))
-        s3d = torch.mean(torch.sqrt(torch.sum(((lmks_3d-torch.mean(lmks_3d, axis=0))**2).narrow(1,0,2)[:, :2], axis=1)))
-        return s2d/s3d
-
     def get_vertices_and_3D_landmarks(self):
         pose_params = torch.cat([self.global_rot, self.jaw_pose], dim=1)
         betas = torch.cat([self.shape_params, self.expression_params], dim=1)
@@ -162,14 +142,6 @@ class FlameLandmarks(nn.Module):
         landmarks_3d.squeeze_()
         vertices.squeeze_()
         return vertices, landmarks_3d
-
-    # fixed camera location (otherwise need to add some translation before the scaling)
-    def torch_project_points(self, points):
-        '''
-        weak perspective camera
-        '''
-        mul_res = torch.mm(self.cam_eye, points.t()).t() 
-        return mul_res * self.scale.expand_as(mul_res)
         
     def flame_regularizer_loss(self, points):
         

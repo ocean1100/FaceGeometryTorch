@@ -8,7 +8,7 @@ from config import get_config
 import argparse
 import os,sys
 import cv2
-from utils.project_on_mesh import compute_texture_map
+from utils.weak_perspective_camera import *
 from psbody.mesh import Mesh
 from psbody.mesh.meshviewer import MeshViewers
 
@@ -35,49 +35,51 @@ def fit_lmk2d(target_img, target_2d_lmks, model_fname, weights):
     torch_target_2d_lmks = torch.from_numpy(target_2d_lmks).cuda()
     factor = max(max(target_2d_lmks[:,0]) - min(target_2d_lmks[:,0]),max(target_2d_lmks[:,1]) - min(target_2d_lmks[:,1]))
 
-    def image_fit_loss(landmarks_2d):
-        return weights['lmk']*torch.sum(torch.sub(landmarks_2d,torch_target_2d_lmks)**2) / (factor ** 2)
+    _, landmarks_3D, _ = flamelayer()
+    initial_scale = init_weak_prespective_camera_scale_from_landmarks(landmarks_3D, target_2d_lmks)
+    scale = Variable(torch.tensor(initial_scale, dtype=landmarks_3D.dtype).cuda(),requires_grad=True)
+
+    def image_fit_loss(landmarks_3D):
+        landmarks_2D = torch_project_points_weak_perspective(landmarks_3D, scale)
+        return weights['lmk']*torch.sum(torch.sub(landmarks_2D,torch_target_2d_lmks)**2) / (factor ** 2)
 
     def fit_closure():
         if torch.is_grad_enabled():
             optimizer.zero_grad()
-        vertices, landmarks_3d, landmarks_2d, flame_regularizer_loss = flamelayer()
-        obj = image_fit_loss(landmarks_2d) + flame_regularizer_loss
+        vertices, landmarks_3D, flame_regularizer_loss = flamelayer()
+        obj = image_fit_loss(landmarks_3D) + flame_regularizer_loss
         if obj.requires_grad:
             obj.backward()
         return obj
 
     def log_obj(str):
         if FIT_2D_DEBUG_MODE:
-            vertices, landmarks_3d, landmarks_2d, flame_regularizer_loss = flamelayer()
-            print (str + ' obj = ', image_fit_loss(landmarks_2d))
+            vertices, landmarks_3D, flame_regularizer_loss = flamelayer()
+            print (str + ' obj = ', image_fit_loss(landmarks_3D))
     def log(str):
         if FIT_2D_DEBUG_MODE:
             print(str)
 
     log('Optimizing rigid transformation')
-    vars = [flamelayer.scale, flamelayer.transl, flamelayer.global_rot] # Optimize for global scale, translation and rotation
+    vars = [scale, flamelayer.transl, flamelayer.global_rot] # Optimize for global scale, translation and rotation
     optimizer = torch.optim.LBFGS(vars, tolerance_change=5e-6, max_iter=500)
-    vertices, landmarks_3d, landmarks_2d, flame_regularizer_loss = flamelayer()
     log_obj('Before rigid obj')
     optimizer.step(fit_closure)
-    vertices, landmarks_3d, landmarks_2d, flame_regularizer_loss = flamelayer()
-    obj = image_fit_loss(landmarks_2d) + flame_regularizer_loss
     log_obj('After rigid obj')
 
     log('Rigid optimization done!')
 
     log('Optimizing model parameters')
-    vars = [flamelayer.scale, flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
+    vars = [scale, flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
     optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500)
     log_obj('Before flame parameters')
     optimizer.step(fit_closure)
     log_obj('After flame parameters')
     log('Fitting done')
 
-    vertices, landmarks_3d, landmarks_2d, flame_regularizer_loss = flamelayer()
+    vertices, landmarks_3D, flame_regularizer_loss = flamelayer()
     np_verts = vertices.detach().cpu().numpy().squeeze()
-    np_scale = flamelayer.scale.detach().cpu().numpy().squeeze()
+    np_scale = scale.detach().cpu().numpy().squeeze()
     return Mesh(np_verts, faces), np_scale
 
 def get_landmarks_with_2D_FAN(target_img_path):
