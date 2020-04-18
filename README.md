@@ -37,3 +37,7 @@ python flame_params_demo.py
 
 ##### Fit a flame to an image 2D landmarks and project a texture
 python ./fit_2D_landmarks_to_image.py
+Or to change an image
+python ./fit_2D_landmarks_to_image.py --target_img_path ./data/bareteeth.000001.26_C.jpg
+
+

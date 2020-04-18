@@ -4,7 +4,7 @@ from torch.autograd import Variable
 from flame import FlameLandmarks
 import pyrender
 import trimesh
-from config import get_config
+from config import parser,get_config
 import argparse
 import os,sys
 import cv2
@@ -91,7 +91,7 @@ def get_landmarks_with_dlib(target_img, detector, predictor):
     landmarks2D = face_utils.shape_to_np(shape)[17:]
     return landmarks2D
 
-def run_2d_lmk_fitting(model_fname, target_lmk_path, texture_mapping, target_img_path, out_path):
+def run_2d_lmk_fitting(model_fname, texture_mapping, target_img_path, out_path):
     if 'generic' not in model_fname:
         print('You are fitting a gender specific model (i.e. female / male). Please make sure you selected the right gender model. Choose the generic model if gender is unknown.')
     if not os.path.exists(target_img_path):
@@ -102,13 +102,9 @@ def run_2d_lmk_fitting(model_fname, target_lmk_path, texture_mapping, target_img
         os.makedirs(out_path)
 
     target_img = cv2.imread(target_img_path)
-    #lmk_2d = get_landmarks_with_2D_FAN(target_img_path)
-    #lmk_2d = np.load(target_lmk_path)
     detector = dlib.get_frontal_face_detector()
     predictor = dlib.shape_predictor('./data/shape_predictor_68_face_landmarks.dat')
     lmk_2d = get_landmarks_with_dlib(target_img, detector, predictor)
-    #print ('lmk_2d = ', lmk_2d)
-    #print ('other_lmk2d = ', other_lmk2d)
     shape_params = Variable(torch.zeros((config.batch_size,300),dtype=torch.float32).cuda(), requires_grad=True)
 
     weights = {}
@@ -150,15 +146,27 @@ def run_2d_lmk_fitting(model_fname, target_lmk_path, texture_mapping, target_img
 
 if __name__ == '__main__':
 
+    parser.add_argument(
+    '--target_img_path',
+    type = str,
+    default = './data/imgHQ00039.jpeg',
+    help = 'Target image path')
+
+    parser.add_argument(
+    '--out_path',
+    type = str,
+    default = './Results',
+    help = 'Results folder path')
+
+    parser.add_argument(
+    '--texture_mapping',
+    type = str,
+    default = './data/texture_data.npy',
+    help = 'Texture data')
+
     config = get_config()
     config.batch_size = 1
     config.flame_model_path = './model/male_model.pkl'
-    config.use_3D_translation = True # could be removed, depending on the camera model
-    config.use_face_contour = False
-    config.target_img_path = './data/imgHQ00039.jpeg'
-    config.out_path = './Results'
-    config.texture_mapping = './data/texture_data.npy'
-    config.target_lmk_path = './data/imgHQ00039_lmks.npy'
 
     print('Running 2D landmark fitting')
-    run_2d_lmk_fitting(config.flame_model_path, config.target_lmk_path, config.texture_mapping, config.target_img_path, config.out_path)
+    run_2d_lmk_fitting(config.flame_model_path, config.texture_mapping, config.target_img_path, config.out_path)
