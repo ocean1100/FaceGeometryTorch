@@ -14,7 +14,7 @@ class FlameLandmarks(nn.Module):
     This class generates a differentiable Flame vertices and 3D landmarks.
     TODO: This class is written to support batches, but in practice was only tested on optimizing a single Flame model at time.
     """
-    def __init__(self, config, init_target_2d_lmks, weights = None):
+    def __init__(self, config, weights = None):
         super(FlameLandmarks, self).__init__()
         print("Initializing FlameLandmarks")
         with open(config.flame_model_path, 'rb') as f:

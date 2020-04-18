@@ -7,12 +7,11 @@ from flame import FlameLandmarks
 FIT_2D_DEBUG_MODE = False
 
 
-def fit_flame_to_2D_landmarks(flamelayer, scale, target_img, target_2d_lmks, optimizer):
+def fit_flame_to_2D_landmarks(flamelayer, scale, target_2d_lmks, optimizer):
     '''
     Fit FLAME to 2D landmarks
     :param flamelayer           Flame parametric model
     :param scale                Camera scale parameter (weak prespective camera)
-    :param target_img           target 2D image
     :param target_2d_lmks:      target 2D landmarks provided as (num_lmks x 3) matrix
     :return: The mesh vertices and the weak prespective camera parameter (scale)
     '''
@@ -55,18 +54,24 @@ def get_face_detector_and_landmarks_predictor():
     predictor = dlib.shape_predictor('./data/shape_predictor_68_face_landmarks.dat')
     return detector, predictor
 
-def get_landmarks_with_dlib(target_img, detector, predictor, rect = None):
+def dlib_get_face_rectangle(target_img, face_detector):
     '''
     If rect is none also calls the predictor, otherwise only calls the landmarks detector
         (significantly faster)
     '''
     gray = cv2.cvtColor(target_img, cv2.COLOR_BGR2GRAY)
-    if (rect is None):
-        rects = detector(gray, 0)
-        if (len(rects) == 0):
-            print ('Error: could not locate face')
-        rect = rects[0]
-    shape = predictor(gray, rect)
+    rects = face_detector(gray, 0)
+    if (len(rects) == 0):
+        print ('Error: could not locate face')
+    return rects[0]
+
+def dlib_get_landmarks(target_img, rect, face_landmarks_predictor):
+    '''
+    If rect is none also calls the predictor, otherwise only calls the landmarks detector
+        (significantly faster)
+    '''
+    gray = cv2.cvtColor(target_img, cv2.COLOR_BGR2GRAY)
+    shape = face_landmarks_predictor(gray, rect)
     landmarks2D = face_utils.shape_to_np(shape)[17:]
     # Mirror landmark y-coordinates
     landmarks2D[:,1] = target_img.shape[0]-landmarks2D[:,1]

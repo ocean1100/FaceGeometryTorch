@@ -1,9 +1,8 @@
 import numpy as np
 from torch.autograd import Variable
 from flame import FlameLandmarks
-import pyrender
-import trimesh
 from config import parser,get_config
+from utils.mesh_io import write_obj
 import argparse
 import os,sys
 import cv2
@@ -21,11 +20,13 @@ def fit_geometry_and_texture_to_2D_landmarks(texture_mapping, target_img_path, o
 
     target_img = cv2.imread(target_img_path)
 
-    # Get face landmarks
-    face_detector, face_landmarks_predictor = get_face_detector_and_landmarks_predictor()
-    target_2d_lmks = get_landmarks_with_dlib(target_img, face_detector, face_landmarks_predictor)
 
-    flamelayer = FlameLandmarks(config,target_2d_lmks)
+    # Predict face location and then face landmarks
+    face_detector, face_landmarks_predictor = get_face_detector_and_landmarks_predictor()
+    rect = dlib_get_face_rectangle(target_img, face_detector)
+    target_2d_lmks = dlib_get_landmarks(target_img, rect, face_landmarks_predictor)
+
+    flamelayer = FlameLandmarks(config)
     flamelayer.cuda()
 
     # Guess initial camera parameters (weak perspective = only scale)
@@ -36,12 +37,12 @@ def fit_geometry_and_texture_to_2D_landmarks(texture_mapping, target_img_path, o
     # Initial guess: fit by optimizing only rigid motion
     vars = [scale, flamelayer.transl, flamelayer.global_rot] # Optimize for global scale, translation and rotation
     rigid_scale_optimizer = torch.optim.LBFGS(vars, tolerance_change=5e-6, max_iter=500)
-    vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_img, target_2d_lmks, rigid_scale_optimizer)
+    vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_2d_lmks, rigid_scale_optimizer)
 
     # Fit with all Flame parameters parameters
     vars = [scale, flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
     all_flame_params_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500)
-    vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_img, target_2d_lmks, all_flame_params_optimizer)
+    vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_2d_lmks, all_flame_params_optimizer)
 
     faces = flamelayer.faces
     out_texture_img_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.png')
@@ -50,7 +51,7 @@ def fit_geometry_and_texture_to_2D_landmarks(texture_mapping, target_img_path, o
 
 def save_and_display_results(result_mesh, result_scale, out_path, target_img_path):
     out_mesh_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.obj')
-    result_mesh.write_obj(out_mesh_fname)
+    write_obj(result_mesh, out_mesh_fname)
     np.save(os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '_scale.npy'), result_scale)
 
     mv = MeshViewers(shape=[1,2], keepalive=True)
