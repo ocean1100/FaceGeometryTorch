@@ -2,9 +2,11 @@ certifi==2020.4.5.1
 chumpy==0.69
 cycler==0.10.0
 decorator==4.4.2
+dlib==19.19.0
 face-alignment==1.0.0
 freetype-py==2.1.0.post1
 imageio==2.8.0
+imutils==0.5.3
 kiwisolver==1.2.0
 matplotlib==3.2.1
 networkx==2.4
