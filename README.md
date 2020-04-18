@@ -45,10 +45,10 @@ python ./fit_2D_landmarks_to_image.py --target_img_path ./data/bareteeth.000001.
 ```
 
 ##### Fit a flame to a video (set of images) with 2D landmarks and project their texture
-'''
+```
 python ./fit_multiple_images.py --input_folder PATH-TO-VOCA_PICTURES-SET --output_folder PATH-TO-RESULTS-FOLDER
 
 And to visualize the results simply run:
 python ./visualize_video_reconstruction.py --input_folder PATH-TO-VIDEO_RESULTS_FOLDER
-'''
+```
 
