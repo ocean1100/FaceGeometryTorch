@@ -16,22 +16,21 @@ For comments or questions, please email us at flame@tue.mpg.de
 '''
 
 
-import os
-import cv2
-import sys
-import argparse
 import numpy as np
-import tensorflow as tf
+import torch
+from torch.autograd import Variable
+from flame import FlameLandmarks
+import pyrender
+import trimesh
+from config import parser,get_config
+import argparse
+import os,sys
+import cv2
+from utils.weak_perspective_camera import *
 from psbody.mesh import Mesh
 from psbody.mesh.meshviewer import MeshViewers
-from utils.landmarks import load_embedding, tf_get_model_lmks, create_lmk_spheres, tf_project_points
-from utils.project_on_mesh import compute_texture_map
-from tensorflow.contrib.opt import ScipyOptimizerInterface as scipy_pt
-from tf_smpl.batch_smpl import SMPL
-import time
-
-import face_alignment
-import mesh_io_new
+from imutils import face_utils
+import dlib
 
 def fit_flame_to_images(images, input_folder, model_fname, template_fname, flame_lmk_path, texture_mapping, out_path):
     if 'generic' not in model_fname:
@@ -74,91 +73,7 @@ def fit_flame_to_images(images, input_folder, model_fname, template_fname, flame
                                tf.concat((tf_shape, tf_exp), axis=-1),
                                tf.concat((tf_rot, tf_pose), axis=-1)))
 
-    fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D)
-
-    with tf.Session() as session:
-        session.run(tf.global_variables_initializer())
-
-        lmks_3d = tf_get_model_lmks(tf_model, template_mesh, lmk_face_idx, lmk_b_coords)
-
-        neck_pose_reg = weights['neck_pose']*tf.reduce_sum(tf.square(tf_pose[:3]))
-        jaw_pose_reg = weights['jaw_pose']*tf.reduce_sum(tf.square(tf_pose[3:6]))
-        eyeballs_pose_reg = weights['eyeballs_pose']*tf.reduce_sum(tf.square(tf_pose[6:]))
-        shape_reg = weights['shape']*tf.reduce_sum(tf.square(tf_shape))
-        exp_reg = weights['expr']*tf.reduce_sum(tf.square(tf_exp))
-
-        first_img = True
-        for img in images:
-            target_img_path = os.path.join(input_folder,img)
-            target_img = cv2.imread(target_img_path)
-
-            start_time = time.time()
-            target_2d_lmks = fa.get_landmarks(target_img)[0][17:]
-            landmarks_time = time.time()
-            print ('landmarks took ', landmarks_time - start_time)
-
-            # Mirror landmark y-coordinates
-            target_2d_lmks[:,1] = target_img.shape[0]-target_2d_lmks[:,1]
-            s2d = np.mean(np.linalg.norm(target_2d_lmks-np.mean(target_2d_lmks, axis=0), axis=1))
-            
-            start_time = time.time()
-            if (first_img):
-                s3d = tf.reduce_mean(tf.sqrt(tf.reduce_sum(tf.square(lmks_3d-tf.reduce_mean(lmks_3d, axis=0))[:, :2], axis=1)))
-                tf_scale = tf.Variable(s2d/s3d, dtype=lmks_3d.dtype)
-                lmks_proj_2d = tf_project_points(lmks_3d, tf_scale, np.zeros(2)) 
-                factor = max(max(target_2d_lmks[:,0]) - min(target_2d_lmks[:,0]),max(target_2d_lmks[:,1]) - min(target_2d_lmks[:,1]))
-                lmk_dist = weights['lmk']*tf.reduce_sum(tf.square(tf.subtract(lmks_proj_2d, target_2d_lmks))) / (factor ** 2)
-
-                # optimize rigid motion
-                session.run(tf.global_variables_initializer())
-                #print('Optimize rigid transformation')
-                vars = [tf_scale, tf_trans, tf_rot]
-                loss = lmk_dist
-                optimizer = scipy_pt(loss=loss, var_list=vars, method='L-BFGS-B', options={'disp': 1, 'ftol': 5e-6})
-                optimizer.minimize(session, fetches=[tf_model, tf_scale, tf.constant(template_mesh.f), tf.constant(target_img), tf.constant(target_2d_lmks), lmks_proj_2d])
-                first_img = False
-            else:
-                # project new 2D landmarks
-                lmks_proj_2d = tf_project_points(lmks_3d, tf_scale, np.zeros(2)) 
-                factor = max(max(target_2d_lmks[:,0]) - min(target_2d_lmks[:,0]),max(target_2d_lmks[:,1]) - min(target_2d_lmks[:,1]))
-                lmk_dist = weights['lmk']*tf.reduce_sum(tf.square(tf.subtract(lmks_proj_2d, target_2d_lmks))) / (factor ** 2)
-
-            # optimize rest of parameters
-            #print('Optimize model parameters')
-            vars = [tf_scale, tf_trans[:2], tf_rot, tf_pose, tf_shape, tf_exp]
-            loss = lmk_dist + shape_reg + exp_reg + neck_pose_reg + jaw_pose_reg + eyeballs_pose_reg
-
-            optimizer = scipy_pt(loss=loss, var_list=vars, method='L-BFGS-B', options={'disp': 0, 'ftol': 1e-7})
-            #optimizer.minimize(session, fetches=[tf_model, tf_scale, tf.constant(template_mesh.f), tf.constant(target_img), tf.constant(target_2d_lmks), lmks_proj_2d,
-            #                                     lmk_dist, shape_reg, exp_reg, neck_pose_reg, jaw_pose_reg, eyeballs_pose_reg], loss_callback=on_step)
-            optimizer.minimize(session, fetches=[tf_model, tf_scale, tf.constant(template_mesh.f), tf.constant(target_img), tf.constant(target_2d_lmks), lmks_proj_2d,
-                                                 lmk_dist, shape_reg, exp_reg, neck_pose_reg, jaw_pose_reg, eyeballs_pose_reg])
-
-            fit_time = time.time()
-            print ('Fit took ', fit_time - start_time)
-            print('Fitting done')
-            result_v, result_scale = session.run([tf_model, tf_scale]) 
-            result_mesh = Mesh(result_v, template_mesh.f)
-
-            if sys.version_info >= (3, 0):
-                texture_data = np.load(texture_mapping, allow_pickle=True, encoding='latin1').item()
-            else:
-                texture_data = np.load(texture_mapping, allow_pickle=True).item()
-            texture_map = compute_texture_map(target_img, result_mesh, result_scale, texture_data)
-
-            out_mesh_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.obj')
-            out_img_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.png')
-
-            cv2.imwrite(out_img_fname, texture_map)
-            result_mesh.set_vertex_colors('white')
-            result_mesh.vt = texture_data['vt']
-            result_mesh.ft = texture_data['ft']
-            result_mesh.set_texture_image(out_img_fname)
-            #result_mesh.write_obj(out_mesh_fname)
-            mesh_io_new.write_obj(result_mesh, out_mesh_fname)
-            np.save(os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '_scale.npy'), result_scale)
-
-
+    
     #result_meshes, result_scales = fit_lmk2d_to_images(images, template_fname, tf_model_fname, lmk_face_idx, lmk_b_coords, weights)
 
 def save_images_in_video(images, input_folder, output_folder, image_viewpoint_ending):

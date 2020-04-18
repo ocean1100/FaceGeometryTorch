@@ -16,7 +16,7 @@ import dlib
 
 FIT_2D_DEBUG_MODE = False
 
-def fit_lmk2d(target_img, target_2d_lmks, model_fname, weights):
+def fit_flame_to_2D_landmarks(flamelayer, scale, target_img, target_2d_lmks, optimizer):
     '''
     Fit FLAME to 2D landmarks
     :param target_img           target 2D image
@@ -26,22 +26,13 @@ def fit_lmk2d(target_img, target_2d_lmks, model_fname, weights):
     :return: a mesh with the fitting results
     '''
     # Mirror landmark y-coordinates
-    target_2d_lmks[:,1] = target_img.shape[0]-target_2d_lmks[:,1]
-
-    flamelayer = FlameLandmarks(config,target_2d_lmks,weights)
-    flamelayer.cuda()
-    faces = flamelayer.faces
 
     torch_target_2d_lmks = torch.from_numpy(target_2d_lmks).cuda()
     factor = max(max(target_2d_lmks[:,0]) - min(target_2d_lmks[:,0]),max(target_2d_lmks[:,1]) - min(target_2d_lmks[:,1]))
 
-    _, landmarks_3D, _ = flamelayer()
-    initial_scale = init_weak_prespective_camera_scale_from_landmarks(landmarks_3D, target_2d_lmks)
-    scale = Variable(torch.tensor(initial_scale, dtype=landmarks_3D.dtype).cuda(),requires_grad=True)
-
     def image_fit_loss(landmarks_3D):
         landmarks_2D = torch_project_points_weak_perspective(landmarks_3D, scale)
-        return weights['lmk']*torch.sum(torch.sub(landmarks_2D,torch_target_2d_lmks)**2) / (factor ** 2)
+        return flamelayer.weights['lmk']*torch.sum(torch.sub(landmarks_2D,torch_target_2d_lmks)**2) / (factor ** 2)
 
     def fit_closure():
         if torch.is_grad_enabled():
@@ -61,26 +52,14 @@ def fit_lmk2d(target_img, target_2d_lmks, model_fname, weights):
             print(str)
 
     log('Optimizing rigid transformation')
-    vars = [scale, flamelayer.transl, flamelayer.global_rot] # Optimize for global scale, translation and rotation
-    optimizer = torch.optim.LBFGS(vars, tolerance_change=5e-6, max_iter=500)
-    log_obj('Before rigid obj')
+    log_obj('Before optimization obj')
     optimizer.step(fit_closure)
-    log_obj('After rigid obj')
-
-    log('Rigid optimization done!')
-
-    log('Optimizing model parameters')
-    vars = [scale, flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
-    optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500)
-    log_obj('Before flame parameters')
-    optimizer.step(fit_closure)
-    log_obj('After flame parameters')
-    log('Fitting done')
+    log_obj('After optimization obj')
 
     vertices, landmarks_3D, flame_regularizer_loss = flamelayer()
     np_verts = vertices.detach().cpu().numpy().squeeze()
     np_scale = scale.detach().cpu().numpy().squeeze()
-    return Mesh(np_verts, faces), np_scale
+    return np_verts,np_scale
 
 def get_landmarks_with_dlib(target_img, detector, predictor):
     gray = cv2.cvtColor(target_img, cv2.COLOR_BGR2GRAY)
@@ -91,9 +70,7 @@ def get_landmarks_with_dlib(target_img, detector, predictor):
     landmarks2D = face_utils.shape_to_np(shape)[17:]
     return landmarks2D
 
-def run_2d_lmk_fitting(model_fname, texture_mapping, target_img_path, out_path):
-    if 'generic' not in model_fname:
-        print('You are fitting a gender specific model (i.e. female / male). Please make sure you selected the right gender model. Choose the generic model if gender is unknown.')
+def run_2d_lmk_fitting(texture_mapping, target_img_path, out_path):
     if not os.path.exists(target_img_path):
         print('Target image not found - s' % target_img_path)
         return
@@ -104,23 +81,30 @@ def run_2d_lmk_fitting(model_fname, texture_mapping, target_img_path, out_path):
     target_img = cv2.imread(target_img_path)
     detector = dlib.get_frontal_face_detector()
     predictor = dlib.shape_predictor('./data/shape_predictor_68_face_landmarks.dat')
-    lmk_2d = get_landmarks_with_dlib(target_img, detector, predictor)
+    target_2d_lmks = get_landmarks_with_dlib(target_img, detector, predictor)
     shape_params = Variable(torch.zeros((config.batch_size,300),dtype=torch.float32).cuda(), requires_grad=True)
 
-    weights = {}
-    # Weight of the landmark distance term
-    weights['lmk'] = 1.0
-    # Weight of the shape regularizer
-    weights['shape'] = 1e-3
-    # Weight of the expression regularizer
-    weights['expr'] = 1e-3
-    # Weight of the neck pose (i.e. neck rotationh around the neck) regularizer
-    weights['neck_pose'] = 100.0
-    # Weight of the jaw pose (i.e. jaw rotation for opening the mouth) regularizer
-    weights['jaw_pose'] = 1e-3
+    target_2d_lmks[:,1] = target_img.shape[0]-target_2d_lmks[:,1]
 
-    result_mesh, result_scale = fit_lmk2d(target_img, lmk_2d, model_fname, weights)
+    flamelayer = FlameLandmarks(config,target_2d_lmks)
+    flamelayer.cuda()
 
+    _, landmarks_3D, _ = flamelayer()
+    initial_scale = init_weak_prespective_camera_scale_from_landmarks(landmarks_3D, target_2d_lmks)
+    scale = Variable(torch.tensor(initial_scale, dtype=landmarks_3D.dtype).cuda(),requires_grad=True)
+
+    # Fit only rigid motion
+    vars = [scale, flamelayer.transl, flamelayer.global_rot] # Optimize for global scale, translation and rotation
+    rigid_scale_optimizer = torch.optim.LBFGS(vars, tolerance_change=5e-6, max_iter=500)
+    np_verts, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_img, target_2d_lmks, rigid_scale_optimizer)
+
+    # Fit with all parameters
+    vars = [scale, flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
+    all_flame_params_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500)
+    np_verts, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_img, target_2d_lmks, all_flame_params_optimizer)
+
+    faces = flamelayer.faces
+    result_mesh = Mesh(np_verts, faces)
     if sys.version_info >= (3, 0):
         texture_data = np.load(texture_mapping, allow_pickle=True, encoding='latin1').item()
     else:
@@ -169,4 +153,4 @@ if __name__ == '__main__':
     config.flame_model_path = './model/male_model.pkl'
 
     print('Running 2D landmark fitting')
-    run_2d_lmk_fitting(config.flame_model_path, config.texture_mapping, config.target_img_path, config.out_path)
+    run_2d_lmk_fitting(config.texture_mapping, config.target_img_path, config.out_path)

@@ -14,7 +14,7 @@ class FlameLandmarks(nn.Module):
     This class generates a differentiable Flame vertices and 3D landmarks.
     TODO: This class is written to support batches, but in practice was only tested on optimizing a single Flame model at time.
     """
-    def __init__(self, config, init_target_2d_lmks, weights):
+    def __init__(self, config, init_target_2d_lmks, weights = None):
         super(FlameLandmarks, self).__init__()
         print("Initializing FlameLandmarks")
         with open(config.flame_model_path, 'rb') as f:
@@ -26,6 +26,22 @@ class FlameLandmarks(nn.Module):
 
         self.init_flame_parameters(config)
         self.init_flame_buffers(config)
+        if (not weights):
+            self.set_default_weights()
+
+    def set_default_weights(self):
+
+        self.weights = {}
+        # Weight of the landmark distance term
+        self.weights['lmk'] = 1.0
+        # Weight of the shape regularizer
+        self.weights['shape'] = 1e-3
+        # Weight of the expression regularizer
+        self.weights['expr'] = 1e-3
+        # Weight of the neck pose (i.e. neck rotationh around the neck) regularizer
+        self.weights['neck_pose'] = 100.0
+        # Weight of the jaw pose (i.e. jaw rotation for opening the mouth) regularizer
+        self.weights['jaw_pose'] = 1e-3
 
     def forward(self):
         """
