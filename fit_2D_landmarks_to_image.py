@@ -11,8 +11,8 @@ import cv2
 from utils.weak_perspective_camera import *
 from psbody.mesh import Mesh
 from psbody.mesh.meshviewer import MeshViewers
-
-import face_alignment
+from imutils import face_utils
+import dlib
 
 FIT_2D_DEBUG_MODE = False
 
@@ -82,11 +82,14 @@ def fit_lmk2d(target_img, target_2d_lmks, model_fname, weights):
     np_scale = scale.detach().cpu().numpy().squeeze()
     return Mesh(np_verts, faces), np_scale
 
-def get_landmarks_with_2D_FAN(target_img_path):
-    target_img = cv2.imread(target_img_path)
-    fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D)
-    lmk_2d = fa.get_landmarks(target_img)[0][17:]
-    return lmk_2d
+def get_landmarks_with_dlib(target_img, detector, predictor):
+    gray = cv2.cvtColor(target_img, cv2.COLOR_BGR2GRAY)
+    rects = detector(gray, 0)
+    if (len(rects) == 0):
+        print ('Error: could not locate face')
+    shape = predictor(gray, rects[0])
+    landmarks2D = face_utils.shape_to_np(shape)[17:]
+    return landmarks2D
 
 def run_2d_lmk_fitting(model_fname, target_lmk_path, texture_mapping, target_img_path, out_path):
     if 'generic' not in model_fname:
@@ -100,7 +103,12 @@ def run_2d_lmk_fitting(model_fname, target_lmk_path, texture_mapping, target_img
 
     target_img = cv2.imread(target_img_path)
     #lmk_2d = get_landmarks_with_2D_FAN(target_img_path)
-    lmk_2d = np.load(target_lmk_path)
+    #lmk_2d = np.load(target_lmk_path)
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor('./data/shape_predictor_68_face_landmarks.dat')
+    lmk_2d = get_landmarks_with_dlib(target_img, detector, predictor)
+    #print ('lmk_2d = ', lmk_2d)
+    #print ('other_lmk2d = ', other_lmk2d)
     shape_params = Variable(torch.zeros((config.batch_size,300),dtype=torch.float32).cuda(), requires_grad=True)
 
     weights = {}
