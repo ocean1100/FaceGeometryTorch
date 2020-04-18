@@ -1,5 +1,4 @@
 import numpy as np
-import torch
 from torch.autograd import Variable
 from flame import FlameLandmarks
 import pyrender
@@ -8,67 +7,9 @@ from config import parser,get_config
 import argparse
 import os,sys
 import cv2
-from utils.weak_perspective_camera import *
 from psbody.mesh import Mesh
 from psbody.mesh.meshviewer import MeshViewers
-from imutils import face_utils
-import dlib
-
-FIT_2D_DEBUG_MODE = False
-
-def fit_flame_to_2D_landmarks(flamelayer, scale, target_img, target_2d_lmks, optimizer):
-    '''
-    Fit FLAME to 2D landmarks
-    :param flamelayer           Flame parametric model
-    :param scale                Camera scale parameter (weak prespective camera)
-    :param target_img           target 2D image
-    :param target_2d_lmks:      target 2D landmarks provided as (num_lmks x 3) matrix
-    :return: The mesh vertices and the weak prespective camera parameter (scale)
-    '''
-    torch_target_2d_lmks = torch.from_numpy(target_2d_lmks).cuda()
-    factor = max(max(target_2d_lmks[:,0]) - min(target_2d_lmks[:,0]),max(target_2d_lmks[:,1]) - min(target_2d_lmks[:,1]))
-
-    def image_fit_loss(landmarks_3D):
-        landmarks_2D = torch_project_points_weak_perspective(landmarks_3D, scale)
-        return flamelayer.weights['lmk']*torch.sum(torch.sub(landmarks_2D,torch_target_2d_lmks)**2) / (factor ** 2)
-
-    def fit_closure():
-        if torch.is_grad_enabled():
-            optimizer.zero_grad()
-        vertices, landmarks_3D, flame_regularizer_loss = flamelayer()
-        obj = image_fit_loss(landmarks_3D) + flame_regularizer_loss
-        if obj.requires_grad:
-            obj.backward()
-        return obj
-
-    def log_obj(str):
-        if FIT_2D_DEBUG_MODE:
-            vertices, landmarks_3D, flame_regularizer_loss = flamelayer()
-            print (str + ' obj = ', image_fit_loss(landmarks_3D))
-    def log(str):
-        if FIT_2D_DEBUG_MODE:
-            print(str)
-
-    log('Optimizing rigid transformation')
-    log_obj('Before optimization obj')
-    optimizer.step(fit_closure)
-    log_obj('After optimization obj')
-
-    vertices, landmarks_3D, flame_regularizer_loss = flamelayer()
-    np_verts = vertices.detach().cpu().numpy().squeeze()
-    np_scale = scale.detach().cpu().numpy().squeeze()
-    return np_verts,np_scale
-
-def get_landmarks_with_dlib(target_img, detector, predictor):
-    gray = cv2.cvtColor(target_img, cv2.COLOR_BGR2GRAY)
-    rects = detector(gray, 0)
-    if (len(rects) == 0):
-        print ('Error: could not locate face')
-    shape = predictor(gray, rects[0])
-    landmarks2D = face_utils.shape_to_np(shape)[17:]
-    # Mirror landmark y-coordinates
-    landmarks2D[:,1] = target_img.shape[0]-landmarks2D[:,1]
-    return landmarks2D
+from fitting.landmarks_fitting import *
 
 def fit_geometry_and_texture_to_2D_landmarks(texture_mapping, target_img_path, out_path):
     if not os.path.exists(target_img_path):
@@ -79,24 +20,25 @@ def fit_geometry_and_texture_to_2D_landmarks(texture_mapping, target_img_path, o
         os.makedirs(out_path)
 
     target_img = cv2.imread(target_img_path)
-    detector = dlib.get_frontal_face_detector()
-    predictor = dlib.shape_predictor('./data/shape_predictor_68_face_landmarks.dat')
-    target_2d_lmks = get_landmarks_with_dlib(target_img, detector, predictor)
-    shape_params = Variable(torch.zeros((config.batch_size,300),dtype=torch.float32).cuda(), requires_grad=True)
+
+    # Get face landmarks
+    face_detector, face_landmarks_predictor = get_face_detector_and_landmarks_predictor()
+    target_2d_lmks = get_landmarks_with_dlib(target_img, face_detector, face_landmarks_predictor)
 
     flamelayer = FlameLandmarks(config,target_2d_lmks)
     flamelayer.cuda()
 
+    # Guess initial camera parameters (weak perspective = only scale)
     _, landmarks_3D, _ = flamelayer()
     initial_scale = init_weak_prespective_camera_scale_from_landmarks(landmarks_3D, target_2d_lmks)
     scale = Variable(torch.tensor(initial_scale, dtype=landmarks_3D.dtype).cuda(),requires_grad=True)
 
-    # Fit only rigid motion
+    # Initial guess: fit by optimizing only rigid motion
     vars = [scale, flamelayer.transl, flamelayer.global_rot] # Optimize for global scale, translation and rotation
     rigid_scale_optimizer = torch.optim.LBFGS(vars, tolerance_change=5e-6, max_iter=500)
     vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_img, target_2d_lmks, rigid_scale_optimizer)
 
-    # Fit with all parameters
+    # Fit with all Flame parameters parameters
     vars = [scale, flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
     all_flame_params_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500)
     vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_img, target_2d_lmks, all_flame_params_optimizer)
@@ -104,6 +46,9 @@ def fit_geometry_and_texture_to_2D_landmarks(texture_mapping, target_img_path, o
     faces = flamelayer.faces
     out_texture_img_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.png')
     result_mesh = get_weak_perspective_textured_mesh(vertices, faces, target_img, texture_mapping, result_scale, out_texture_img_fname)
+    save_and_display_results(result_mesh, result_scale, out_path, target_img_path)
+
+def save_and_display_results(result_mesh, result_scale, out_path, target_img_path):
     out_mesh_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.obj')
     result_mesh.write_obj(out_mesh_fname)
     np.save(os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '_scale.npy'), result_scale)
