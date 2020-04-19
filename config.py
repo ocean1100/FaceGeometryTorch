@@ -13,7 +13,7 @@ parser.add_argument(
 parser.add_argument(
     '--static_landmark_embedding_path',
     type = str,
-    default = './model/flame_static_embedding.pkl',
+    default = './data/flame_static_embedding.pkl',
     help = 'Static landmark embeddings path for FLAME'
 )
 parser.add_argument(

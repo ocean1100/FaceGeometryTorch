@@ -104,7 +104,7 @@ if __name__ == '__main__':
     images.sort()
 
     # uncomment the following to create a movie from the raw images (not reconstruction) 
-    #save_images_in_video(images, args.input_folder, args.output_folder, args.image_viewpoint_ending)
+    #save_images_in_video(images, config.input_folder, config.output_folder, config.image_viewpoint_ending)
 
     # Iteratively fit flame to images
     fit_flame_to_images(images, config.texture_mapping, config.input_folder, config.output_folder)
