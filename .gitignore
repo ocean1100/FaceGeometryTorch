@@ -22,3 +22,12 @@ Results/imgHQ00039.obj
 Results/imgHQ00039.png
 
 utils/__pycache__/project_on_mesh.cpython-37.pyc
+
+fitting/__pycache__/
+
+utils/__pycache__/mesh_io.cpython-37.pyc
+
+.idea/workspace.xml
+
+utils/__pycache__/weak_perspective_camera.cpython-37.pyc
+
