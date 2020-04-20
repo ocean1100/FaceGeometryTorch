@@ -7,6 +7,12 @@ import trimesh
 from vtkplotter import *
 import vtkplotter.mesh
 
+show_texture = True
+def show_hide_texture():
+    global show_texture
+    show_texture = not show_texture
+    mesh = load_mesh_obj_and_texture(args.input_folder, meshes[0])
+    show(mesh)
 
 def animate_meshes():
     mesh = load_mesh_obj_and_texture(args.input_folder, meshes[0])
@@ -19,7 +25,11 @@ def animate_meshes():
 def load_mesh_obj_and_texture(input_folder, mesh):
     obj_path = os.path.join(input_folder,mesh)
     text_path = os.path.splitext(obj_path)[0] + '.png'
-    return vp.load(obj_path).clean().computeNormals().phong().texture(text_path)
+    global show_texture
+    if (show_texture):
+        return vp.load(obj_path).clean().computeNormals().phong().texture(text_path)    
+    else:
+        return vp.load(obj_path).clean().computeNormals().phong()
 
 
 if __name__ == '__main__':
@@ -43,6 +53,18 @@ if __name__ == '__main__':
     animate_meshes,
     pos=(0.7, 0.05),  # x,y fraction from bottom left corner
     states=["press to animate"],
+    c=["w"],
+    bc=["dg", "dv"],  # colors of states
+    font="courier",   # arial, courier, times
+    size=25,
+    bold=True,
+    italic=False,
+    )
+
+    texture_button = vp.addButton(
+    show_hide_texture,
+    pos=(0.3, 0.05),  # x,y fraction from bottom left corner
+    states=["show texture", "hide texture"],
     c=["w"],
     bc=["dg", "dv"],  # colors of states
     font="courier",   # arial, courier, times
