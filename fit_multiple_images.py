@@ -52,8 +52,8 @@ def fit_flame_to_images(images, texture_mapping, input_folder, out_path):
 
     # set more loose optimization params for consecutive steps
     opt_params = all_flame_params_optimizer.param_groups[0]
-    opt_params['tolerance_change'] = 1e-4 # Could probably make it real time
-    opt_params['tolerance_grad'] = 1e-3 # Could probably make it real time
+    #opt_params['tolerance_change'] = 1e-4 # Could probably make it real time
+    #opt_params['tolerance_grad'] = 1e-3 # Could probably make it real time
     #opt_params['max_iter'] = 10
 
     first_fit = True

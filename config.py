@@ -26,3 +26,12 @@ parser.add_argument(
 def get_config():
     config = parser.parse_args()
     return config
+
+def get_config_with_default_args():
+    config = parser.parse_args([])
+    return config
+
+def get_config_with_args(cmd_args):
+    # cmd_args of the format ['--input', 'PATH_TO_INPUT', '--output', 'PATH_TO_OUTPUT']
+    config = parser.parse_args(cmd_args)
+    return config

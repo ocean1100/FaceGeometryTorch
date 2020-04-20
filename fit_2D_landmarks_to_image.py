@@ -20,7 +20,8 @@ def fit_geometry_and_texture_to_2D_landmarks(texture_mapping, target_img_path, o
 
     target_img = cv2.imread(target_img_path)
 
-
+    #print ('target_img.shape = ', target_img.shape)
+    #sys.exit(1)
     # Predict face location and then face landmarks
     face_detector, face_landmarks_predictor = get_face_detector_and_landmarks_predictor()
     rect = dlib_get_face_rectangle(target_img, face_detector)
