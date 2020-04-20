@@ -10,7 +10,7 @@ def smoothness_obj(L, verts):
         x = verts[:,i].unsqueeze(0).t()
         xtLx = torch.mm(x.t(), torch.mm(L,x))
         obj_list.append(xtLx)
-    obj =  torch.stack(obj_list, dim=0).sum(dim=0).sum(dim=0)
+    obj =  torch.stack(obj_list, dim=0).sum(dim=0).sum(dim=0)[0]
     return obj
 
 def smoothness_obj_from_ref(L, verts, verts_0):
@@ -20,7 +20,7 @@ def smoothness_obj_from_ref(L, verts, verts_0):
         x_sub_x0 = verts[:,i].unsqueeze(0).t()-verts_0[:,i].unsqueeze(0).t()
         smoothness_diff_x = torch.mm(x_sub_x0.t(), torch.mm(L,x_sub_x0))
         obj_list.append(smoothness_diff_x)
-    obj =  torch.stack(obj_list, dim=0).sum(dim=0).sum(dim=0)
+    obj =  torch.stack(obj_list, dim=0).sum(dim=0).sum(dim=0)[0]
     return obj
 
 def smoothness_obj_coord(L,coord):
@@ -33,7 +33,7 @@ def torch_laplacian_cot(verts_np,faces_np):
     L_np = -1*igl.cotmatrix(verts_np, faces_np)
     return coo_to_sparse_torch(L_np.tocoo())
 
-def coo_to_sparse_torch(mat, dtype = torch.float64):
+def coo_to_sparse_torch(mat, dtype = torch.double):
 
     # tensor flow sparse
     values = mat.data

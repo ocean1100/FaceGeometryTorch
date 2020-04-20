@@ -47,8 +47,8 @@ def fit_flame_to_images(images, texture_mapping, input_folder, out_path):
     vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_2d_lmks, all_flame_params_optimizer)
 
     # Now optimize without shape params
-    #vars = [flamelayer.transl, flamelayer.global_rot, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
-    #all_flame_params_optimizer = torch.optim.LBFGS(vars, max_iter=500, line_search_fn = 'strong_wolfe')
+    vars = [flamelayer.transl, flamelayer.global_rot, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
+    all_flame_params_optimizer = torch.optim.LBFGS(vars, max_iter=500, line_search_fn = 'strong_wolfe')
 
     # set more loose optimization params for consecutive steps
     opt_params = all_flame_params_optimizer.param_groups[0]
@@ -56,6 +56,8 @@ def fit_flame_to_images(images, texture_mapping, input_folder, out_path):
     #opt_params['tolerance_grad'] = 1e-3 # Could probably make it real time
     #opt_params['max_iter'] = 10
 
+    # add smoothness/temporal consistency
+    flamelayer.set_laplacian_and_ref(vertices,faces)
     first_fit = True
     for img in images[1:]:
         target_img_path = os.path.join(input_folder,img)
@@ -68,6 +70,9 @@ def fit_flame_to_images(images, texture_mapping, input_folder, out_path):
         vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_2d_lmks, all_flame_params_optimizer)
         landmarks_and_fitting_time = time.time() - time_before
         print ('Landmarks plus fitting took ', landmarks_and_fitting_time)
+
+        # add smoothness/temporal consistency
+        flamelayer.set_ref(vertices)
         
         out_texture_img_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.png')
         result_mesh = get_weak_perspective_textured_mesh(vertices, faces, target_img, texture_mapping, result_scale, out_texture_img_fname)
