@@ -7,6 +7,7 @@ from config import get_config
 
 from vtkplotter import Plotter, datadir, Text2D,show, interactive
 import vtkplotter.mesh
+import time
 
 shape_params_size = 300
 expression_params_size = 100
@@ -14,21 +15,28 @@ expression_params_size = 100
 phong_shading = False # vtkplotter bug causes issues when using phong shading
 
 def update_flame():
+	t = time.time()
 	vertice = flamelayer(shape_params, expression_params, pose_params, neck_pose, transl)
+	time_took = time.time()-t
+	print ('Time took = ', time_took)
 	vertices = vertice[0].detach().cpu().numpy().squeeze()
-	mesh.points(vertices)
+	#mesh.points(vertices)
 
-	"""
+	global mesh
+	vp.clear(mesh)
 	# attempt to solve a vtkplotter bugs with phong shading
-	global mesh	
-	if phong_shading:
-		mesh_n = vtkplotter.mesh.Mesh([vertices, faces]).computeNormals().phong()
-	else:
-		mesh = vtkplotter.mesh.Mesh([vertices, faces]).flat()
+	
+	mesh_n = vtkplotter.mesh.Mesh([vertices, faces]).computeNormals().phong()
+	
 	show(mesh_n, interactive=0)
 	vp.clear(mesh)
 	mesh = mesh_n
 	interactive()
+	"""
+	if phong_shading:
+		mesh_n = vtkplotter.mesh.Mesh([vertices, faces]).computeNormals().phong()
+	else:
+		mesh = vtkplotter.mesh.Mesh([vertices, faces]).flat()
 	"""
 
 def flame_shape_slider(widget, event):
@@ -69,6 +77,7 @@ config.use_face_contour = False
 
 
 flamelayer = FlameDecoder(config)
+flamelayer.cuda()
 # Creating a batch of mean shapes
 shape_params = torch.zeros((config.batch_size,shape_params_size)).cuda()
 
@@ -83,6 +92,7 @@ expression_params = torch.zeros((config.batch_size,expression_params_size), dtyp
 flamelayer.cuda()
 
 print('Building Flame layer')
+print ('torch.cuda.is_available() = ', torch.cuda.is_available())
 neck_pose = torch.zeros(config.batch_size,3).cuda()
 #eye_pose = torch.zeros(config.batch_size,6).cuda() 
 transl = torch.zeros(config.batch_size,3).cuda()

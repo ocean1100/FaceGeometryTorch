@@ -33,7 +33,7 @@ def torch_laplacian_cot(verts_np,faces_np):
     L_np = -1*igl.cotmatrix(verts_np, faces_np)
     return coo_to_sparse_torch(L_np.tocoo())
 
-def coo_to_sparse_torch(mat, dtype = torch.double):
+def coo_to_sparse_torch(mat, dtype = torch.float32):
 
     # tensor flow sparse
     values = mat.data
@@ -81,7 +81,7 @@ if __name__ == '__main__':
 
     print ('smooth_obj = ', smooth_obj)
 
-    ones = torch.ones(tensor_v.shape, dtype=torch.double)
+    ones = torch.ones(tensor_v.shape, dtype=torch.float32)
     smooth_obj = smoothness_obj(L,ones)
     print ('smooth_obj = ', smooth_obj)
 

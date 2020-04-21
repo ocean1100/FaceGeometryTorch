@@ -15,12 +15,15 @@ def fit_flame_to_images(images, texture_mapping, input_folder, out_path, load_sh
     if not os.path.exists(out_path):
         os.makedirs(out_path)
 
-    if load_shape_path:
-        shape_params_np = np.load(load_shape_path)
     # Build the flame model
     flamelayer = FlameLandmarks(config)
     flamelayer.cuda()
     faces = flamelayer.faces
+
+    # Set a fixed shape if one is specified
+    if load_shape_path:
+        shape_params_np = np.load(load_shape_path)
+        flamelayer.set_shape(shape_params_np)
 
     init_image = cv2.imread(os.path.join(input_folder,images[0]))
 
@@ -43,13 +46,15 @@ def fit_flame_to_images(images, texture_mapping, input_folder, out_path, load_sh
     vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_2d_lmks, rigid_scale_optimizer)
 
     # Initialize the optimizer once, so that consecutive optimization routines will have a warm start
-    vars = [scale, flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
-    all_flame_params_optimizer = torch.optim.LBFGS(vars, max_iter=500, line_search_fn = 'strong_wolfe')
-    vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_2d_lmks, all_flame_params_optimizer)
+    # If a fixed flame shape is given, use it, otherwise also have it in the optimization
+    if load_shape_path:
+        vars = [scale, flamelayer.transl, flamelayer.global_rot, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
+    else:
+        vars = [scale, flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
 
-    # Now optimize without shape params
-    #vars = [flamelayer.transl, flamelayer.global_rot, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
-    #all_flame_params_optimizer = torch.optim.LBFGS(vars, max_iter=500, line_search_fn = 'strong_wolfe')
+    all_flame_params_optimizer = torch.optim.LBFGS(vars, max_iter=10, history_size=10, line_search_fn = 'strong_wolfe')
+    #all_flame_params_optimizer = lbfgs2.LBFGS2(vars, max_iter=5, history_size=10)#, line_search_fn = 'strong_wolfe')
+    vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_2d_lmks, all_flame_params_optimizer)
 
     # set more loose optimization params for consecutive steps
     opt_params = all_flame_params_optimizer.param_groups[0]
@@ -58,10 +63,10 @@ def fit_flame_to_images(images, texture_mapping, input_folder, out_path, load_sh
             mean_shape = flamelayer.shape_params.detach().cpu().numpy().squeeze()
     #opt_params['tolerance_change'] = 1e-4 # Could probably make it real time
     #opt_params['tolerance_grad'] = 1e-3 # Could probably make it real time
-    #opt_params['max_iter'] = 10
+    #opt_params['max_iter'] = 2
 
     # add smoothness/temporal consistency
-    flamelayer.set_laplacian_and_ref(vertices,faces)
+    flamelayer.set_laplacian(vertices,faces)
     first_fit = True
     for img in images:
         target_img_path = os.path.join(input_folder,img)
@@ -70,7 +75,6 @@ def fit_flame_to_images(images, texture_mapping, input_folder, out_path, load_sh
         time_before = time.time()
         target_2d_lmks = dlib_get_landmarks(target_img, rect, face_landmarks_predictor)
         # Fit with all of Flame parameters parameters
-        time_before = time.time()
         vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_2d_lmks, all_flame_params_optimizer)
         landmarks_and_fitting_time = time.time() - time_before
         print ('Landmarks plus fitting took ', landmarks_and_fitting_time)
@@ -86,7 +90,7 @@ def fit_flame_to_images(images, texture_mapping, input_folder, out_path, load_sh
 
     if save_shape:
         mean_shape = mean_shape/len(images)
-        np.save(os.path.join(out_path, 'shape_params.npy'), result_scale)
+        np.save(os.path.join(out_path, 'shape_params.npy'), mean_shape)
 
 def save_mesh(result_mesh, result_scale, out_path, target_img_path):
     out_mesh_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.obj')
@@ -122,7 +126,6 @@ if __name__ == '__main__':
     # Get all images
     images = [img for img in os.listdir(config.input_folder) if img.endswith(config.image_viewpoint_ending)]
     images.sort()
-    images = images[0:10]
 
     # uncomment the following to create a movie from the raw images (not reconstruction) 
     #save_images_in_video(images, config.input_folder, config.output_folder, config.image_viewpoint_ending)
