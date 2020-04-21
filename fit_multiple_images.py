@@ -11,11 +11,12 @@ from psbody.mesh.meshviewer import MeshViewers
 from fitting.landmarks_fitting import *
 import time
 
-def fit_flame_to_images(images, texture_mapping, input_folder, out_path):
+def fit_flame_to_images(images, texture_mapping, input_folder, out_path, load_shape_path, save_shape):
     if not os.path.exists(out_path):
         os.makedirs(out_path)
 
-
+    if load_shape_path:
+        shape_params_np = np.load(load_shape_path)
     # Build the flame model
     flamelayer = FlameLandmarks(config)
     flamelayer.cuda()
@@ -47,11 +48,14 @@ def fit_flame_to_images(images, texture_mapping, input_folder, out_path):
     vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_2d_lmks, all_flame_params_optimizer)
 
     # Now optimize without shape params
-    vars = [flamelayer.transl, flamelayer.global_rot, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
-    all_flame_params_optimizer = torch.optim.LBFGS(vars, max_iter=500, line_search_fn = 'strong_wolfe')
+    #vars = [flamelayer.transl, flamelayer.global_rot, flamelayer.expression_params, flamelayer.jaw_pose, flamelayer.neck_pose]
+    #all_flame_params_optimizer = torch.optim.LBFGS(vars, max_iter=500, line_search_fn = 'strong_wolfe')
 
     # set more loose optimization params for consecutive steps
     opt_params = all_flame_params_optimizer.param_groups[0]
+
+    if (save_shape):
+            mean_shape = flamelayer.shape_params.detach().cpu().numpy().squeeze()
     #opt_params['tolerance_change'] = 1e-4 # Could probably make it real time
     #opt_params['tolerance_grad'] = 1e-3 # Could probably make it real time
     #opt_params['max_iter'] = 10
@@ -59,7 +63,7 @@ def fit_flame_to_images(images, texture_mapping, input_folder, out_path):
     # add smoothness/temporal consistency
     flamelayer.set_laplacian_and_ref(vertices,faces)
     first_fit = True
-    for img in images[1:]:
+    for img in images:
         target_img_path = os.path.join(input_folder,img)
         print ('Fitting image at ', target_img_path)
         target_img = cv2.imread(target_img_path)
@@ -73,10 +77,16 @@ def fit_flame_to_images(images, texture_mapping, input_folder, out_path):
 
         # add smoothness/temporal consistency
         flamelayer.set_ref(vertices)
+        if (save_shape):
+            mean_shape = mean_shape + flamelayer.shape_params.detach().cpu().numpy().squeeze()
         
         out_texture_img_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.png')
         result_mesh = get_weak_perspective_textured_mesh(vertices, faces, target_img, texture_mapping, result_scale, out_texture_img_fname)
         save_mesh(result_mesh, result_scale, out_path, target_img_path)
+
+    if save_shape:
+        mean_shape = mean_shape/len(images)
+        np.save(os.path.join(out_path, 'shape_params.npy'), result_scale)
 
 def save_mesh(result_mesh, result_scale, out_path, target_img_path):
     out_mesh_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.obj')
@@ -94,11 +104,16 @@ def save_images_in_video(images, input_folder, output_folder, image_viewpoint_en
     cv2.destroyAllWindows()
     video.release()
 
+
 if __name__ == '__main__':
     parser.add_argument('--input_folder', help='Path of the input folder images')
     parser.add_argument('--output_folder', help='Output folder path')
     parser.add_argument('--image_viewpoint_ending',default='26_C.jpg', help='Ending of the file from the given angle')
     parser.add_argument('--texture_mapping',type = str,default = './data/texture_data.npy',help = 'Texture data')
+    parser.add_argument('--load_shape_path', type = str,default = '', help = 'Load shape from a given path')
+    
+    # With shape matching before or without
+    parser.add_argument('--save_shape', dest='save_shape', action='store_true')
 
     config = get_config()
     config.batch_size = 1
@@ -107,11 +122,10 @@ if __name__ == '__main__':
     # Get all images
     images = [img for img in os.listdir(config.input_folder) if img.endswith(config.image_viewpoint_ending)]
     images.sort()
+    images = images[0:10]
 
     # uncomment the following to create a movie from the raw images (not reconstruction) 
     #save_images_in_video(images, config.input_folder, config.output_folder, config.image_viewpoint_ending)
 
     # Iteratively fit flame to images
-    fit_flame_to_images(images, config.texture_mapping, config.input_folder, config.output_folder)
-
-
+    fit_flame_to_images(images, config.texture_mapping, config.input_folder, config.output_folder, config.load_shape_path, config.save_shape)
