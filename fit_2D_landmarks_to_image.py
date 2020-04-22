@@ -9,6 +9,7 @@ import cv2
 from psbody.mesh import Mesh
 from psbody.mesh.meshviewer import MeshViewers
 from fitting.landmarks_fitting import *
+from fitting.silhouette_fitting import *
 
 def fit_geometry_and_texture_to_2D_landmarks(texture_mapping, target_img_path, out_path):
     if not os.path.exists(target_img_path):
@@ -19,7 +20,6 @@ def fit_geometry_and_texture_to_2D_landmarks(texture_mapping, target_img_path, o
         os.makedirs(out_path)
 
     target_img = cv2.imread(target_img_path)
-
     #print ('target_img.shape = ', target_img.shape)
     #sys.exit(1)
     # Predict face location and then face landmarks
@@ -45,6 +45,16 @@ def fit_geometry_and_texture_to_2D_landmarks(texture_mapping, target_img_path, o
     all_flame_params_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500)
     vertices, result_scale = fit_flame_to_2D_landmarks(flamelayer, scale, target_2d_lmks, all_flame_params_optimizer)
 
+    # find camera translation
+    target_silhouette = segment_img(target_img,thresh=9)
+    silhouette_err = gen_silhouette_model(flamelayer, target_silhouette)
+    cam_pos = silhouette_err.camera_position
+    vars = [cam_pos]
+    silhouette_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500)
+
+    camera_calibration(flamelayer,silhouette_err,cam_pos,silhouette_optimizer)
+
+
     faces = flamelayer.faces
     out_texture_img_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.png')
     result_mesh = get_weak_perspective_textured_mesh(vertices, faces, target_img, texture_mapping, result_scale, out_texture_img_fname)
@@ -64,7 +74,7 @@ if __name__ == '__main__':
     parser.add_argument(
     '--target_img_path',
     type = str,
-    default = './data/imgHQ00039.jpeg',
+    default = './data/bareteeth.000001.26_C.jpg',
     help = 'Target image path')
 
     parser.add_argument(
