@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import pickle
+from utils.laplacian import *
 from smplx.lbs import lbs, batch_rodrigues, vertices2landmarks, find_dynamic_lmk_idx_and_bcoords
 from smplx.utils import Struct, to_tensor, to_np, rot_mat_to_euler
 
@@ -23,6 +24,8 @@ class FlameLandmarks(nn.Module):
         self.batch_size = config.batch_size
         self.faces = self.flame_model.f
         self.weights = weights
+        self.ref_vertices = None
+        self.fixed_shape = None
 
         self.init_flame_parameters(config)
         self.init_flame_buffers(config)
@@ -34,7 +37,12 @@ class FlameLandmarks(nn.Module):
         self.weights = {}
         # Weight of the landmark distance term
         self.weights['lmk'] = 1.0
-        # Weight of the shape regularizer
+
+        # weights for different regularization terms
+        self.weights['laplace'] = 100
+        self.weights['euc_reg'] = 0.1
+
+        # Weights for flame params regularizers
         self.weights['shape'] = 1e-3
         # Weight of the expression regularizer
         self.weights['expr'] = 1e-3
@@ -43,8 +51,19 @@ class FlameLandmarks(nn.Module):
         # Weight of the jaw pose (i.e. jaw rotation for opening the mouth) regularizer
         self.weights['jaw_pose'] = 1e-3
 
+    # vo,f0 is in numpy
+    def set_laplacian(self, v0, f0):
+        self.L = torch_laplacian_cot(v0,np.int32(f0)).cuda()
+    
+    def set_ref(self, v0):
+        # init ref and laplace matrix
+        self.ref_vertices = torch.tensor(v0,dtype=self.dtype).cuda()
+
+    def set_shape(self, shape_params_np):
+        self.fixed_shape = torch.tensor(shape_params_np, dtype=self.dtype).cuda().unsqueeze(0)
+
     def forward(self):
-        """
+        """)
             return:
                 vertices: N X V X 3
                 landmarks_3D: N X number of 3D landmarks X 3
@@ -58,6 +77,7 @@ class FlameLandmarks(nn.Module):
         return vertices, landmarks_3D, flame_reg_loss
 
     def init_flame_parameters(self, config):
+        
         
         default_shape_param = torch.zeros((self.batch_size,300),
                                            dtype=self.dtype, requires_grad=True)
@@ -133,9 +153,10 @@ class FlameLandmarks(nn.Module):
         self.register_buffer('lmk_bary_coords',
                              torch.tensor(lmk_bary_coords, dtype=self.dtype))
 
-    def get_vertices_and_3D_landmarks(self):
+    def get_vertices_and_3D_landmarks(self, ):
         pose_params = torch.cat([self.global_rot, self.jaw_pose], dim=1)
-        betas = torch.cat([self.shape_params, self.expression_params], dim=1)
+        shape_params = (self.fixed_shape if self.fixed_shape is not None else self.shape_params)
+        betas = torch.cat([shape_params, self.expression_params], dim=1)
 
         # pose_params_numpy[:, :3] : global rotation
         # pose_params_numpy[:, 3:] : jaw rotation
@@ -159,13 +180,19 @@ class FlameLandmarks(nn.Module):
         vertices.squeeze_()
         return vertices, landmarks_3d
         
-    def flame_regularizer_loss(self, points):
+    def flame_regularizer_loss(self, vertices):
         
         pose_params = torch.cat([self.global_rot, self.jaw_pose], dim=1)
 
-        return self.weights['neck_pose']*torch.sum(self.neck_pose**2) + self.weights['jaw_pose']*torch.sum(self.jaw_pose**2)+ \
-            self.weights['shape']*torch.sum(self.shape_params**2) + self.weights['expr']*torch.sum(self.expression_params**2)
-
+        shape_params = (self.fixed_shape if self.fixed_shape is not None else self.shape_params)
+        flame_reg = self.weights['neck_pose']*torch.sum(self.neck_pose**2) + self.weights['jaw_pose']*torch.sum(self.jaw_pose**2)+ \
+            self.weights['shape']*torch.sum(shape_params**2) + self.weights['expr']*torch.sum(self.expression_params**2)
+        if (self.ref_vertices is None):
+            return flame_reg
+        else:
+            lap_reg = self.weights['laplace']*smoothness_obj_from_ref(self.L, vertices, self.ref_vertices)#
+            euc_reg = self.weights['euc_reg']*torch.mean(torch.norm(self.ref_vertices-vertices, dim=1))
+            return flame_reg + lap_reg + euc_reg 
 
 
 class FlameDecoder(nn.Module):
@@ -248,6 +275,3 @@ class FlameDecoder(nn.Module):
         vertices += transl.unsqueeze(dim=1)
 
         return vertices
-
-
-
