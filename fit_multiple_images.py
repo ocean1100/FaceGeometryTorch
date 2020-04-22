@@ -9,6 +9,7 @@ import cv2
 from psbody.mesh import Mesh
 from psbody.mesh.meshviewer import MeshViewers
 from fitting.landmarks_fitting import *
+from utils.video import *
 import shutil
 import errno
 import time
@@ -98,32 +99,6 @@ def save_mesh(result_mesh, result_scale, out_path, target_img_path):
     write_obj(result_mesh, out_mesh_fname)
     np.save(os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '_scale.npy'), result_scale)
 
-
-def video_to_images(video_path, max_iter):
-    cap = cv2.VideoCapture(config.input)
-    i = 0
-    images = []
-    while (cap.isOpened() and i < max_iter):
-        # Capture frame-by-frame
-        ret, frame = cap.read()
-        if ret == True:
-            images.append(frame)
-            i = i+1
-        # Break the loop
-        else: 
-            break
-    return images
-
-def save_images_in_video(images, input_folder, output_folder, image_viewpoint_ending):
-    video_name = output_folder + '/' + 'video-' + image_viewpoint_ending + '.avi'
-    frame = cv2.imread(os.path.join(input_folder,images[0]))
-    height, width, layers = frame.shape
-    video = cv2.VideoWriter(video_name, 0, 30, (width,height))
-
-    for image in images:
-        video.write(cv2.imread(os.path.join(input_folder,image)))
-    cv2.destroyAllWindows()
-    video.release()
 
 def load_data_and_copy_to_output_folder(inp, image_viewpoint_ending, output_folder, max_images):
     output_file_paths = [os.path.join(output_folder, os.path.basename(inp) + str(i) + '.png') for i in range(max_images)]
