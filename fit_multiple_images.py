@@ -140,7 +140,7 @@ def load_data_and_copy_to_output_folder(inp, image_viewpoint_ending, output_fold
         frames = video_to_images(inp, max_images)
         output_file_paths = output_file_paths[:len(frames)]
         for i in range(len(output_file_paths)):
-            cv2.imsave(output_file_paths[i], frames[i])
+            cv2.imwrite(output_file_paths[i], frames[i])
     else:
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), config.input)
 
