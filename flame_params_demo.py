@@ -20,8 +20,9 @@ def update_flame():
 	time_took = time.time()-t
 	print ('Time took = ', time_took)
 	vertices = vertice[0].detach().cpu().numpy().squeeze()
-	#mesh.points(vertices)
+	
 
+	#mesh.points(vertices) # This line can be used when there is no phong shading, otherwise vtkplotter crush (therefore we have the lines below, though they cause vtkplotter to "blink")
 	global mesh
 	vp.clear(mesh)
 	# attempt to solve a vtkplotter bugs with phong shading
@@ -32,13 +33,7 @@ def update_flame():
 	vp.clear(mesh)
 	mesh = mesh_n
 	interactive()
-	"""
-	if phong_shading:
-		mesh_n = vtkplotter.mesh.Mesh([vertices, faces]).computeNormals().phong()
-	else:
-		mesh = vtkplotter.mesh.Mesh([vertices, faces]).flat()
-	"""
-
+	
 def flame_shape_slider(widget, event):
 	value = widget.GetRepresentation().GetValue()
 	global shape_params
@@ -92,7 +87,6 @@ expression_params = torch.zeros((config.batch_size,expression_params_size), dtyp
 flamelayer.cuda()
 
 print('Building Flame layer')
-print ('torch.cuda.is_available() = ', torch.cuda.is_available())
 neck_pose = torch.zeros(config.batch_size,3).cuda()
 #eye_pose = torch.zeros(config.batch_size,6).cuda() 
 transl = torch.zeros(config.batch_size,3).cuda()
