@@ -10,11 +10,12 @@ from psbody.mesh import Mesh
 from psbody.mesh.meshviewer import MeshViewers
 from fitting.landmarks_fitting import *
 from utils.video import *
+from utils.render_mesh import *
 import shutil
 import errno
 import time
 
-def fit_flame_to_images(images, texture_mapping, out_path, load_shape_path, save_shape):
+def fit_flame_to_images(images, texture_mapping, out_path, load_shape_path, save_shape, show_live):
     if not os.path.exists(out_path):
         os.makedirs(out_path)
 
@@ -86,9 +87,25 @@ def fit_flame_to_images(images, texture_mapping, out_path, load_shape_path, save
         if (save_shape):
             mean_shape = mean_shape + flamelayer.shape_params.detach().cpu().numpy().squeeze()
         
-        out_texture_img_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.png')
-        result_mesh = get_weak_perspective_textured_mesh(vertices, faces, target_img, texture_mapping, result_scale, out_texture_img_fname)
-        save_mesh(result_mesh, result_scale, out_path, target_img_path)
+        if show_live:
+            rendered_img = render_mesh(Mesh(result_scale*vertices, faces), height=target_img.shape[0], width=target_img.shape[1])
+            #for (x, y) in plt_opt_lmks:
+            #cv2.circle(rendered_img, (int(x), int(y)), 4, (255, 0, 0), -1)
+            target_img = np.hstack((target_img, rendered_img))
+
+            scale_percent = 50
+            width = int(target_img.shape[1] * scale_percent / 100)
+            height = int(target_img.shape[0] * scale_percent / 100)
+            dim = (width, height)
+            # resize image
+            resized = cv2.resize(target_img, dim, interpolation = cv2.INTER_AREA)
+
+            cv2.imshow('Frame',resized)
+            cv2.waitKey(1)
+        else:
+            out_texture_img_fname = os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '.png')
+            result_mesh = get_weak_perspective_textured_mesh(vertices, faces, target_img, texture_mapping, result_scale, out_texture_img_fname)
+            save_mesh(result_mesh, result_scale, out_path, target_img_path)
 
     if save_shape:
         mean_shape = mean_shape/len(images)
@@ -131,6 +148,7 @@ if __name__ == '__main__':
     
     # With shape matching before or without
     parser.add_argument('--save_shape', dest='save_shape', action='store_true')
+    parser.add_argument('--show_live', dest='show_live', action='store_true')
 
     config = get_config()
     config.batch_size = 1
@@ -142,4 +160,4 @@ if __name__ == '__main__':
     #save_images_in_video(images, config.input_folder, config.output_folder, config.image_viewpoint_ending)
 
     # Iteratively fit flame to images
-    fit_flame_to_images(images_p, config.texture_mapping, config.output_folder, config.load_shape_path, config.save_shape)
+    fit_flame_to_images(images_p, config.texture_mapping, config.output_folder, config.load_shape_path, config.save_shape, config.show_live)

@@ -99,7 +99,7 @@ vertices = vertice[0].detach().cpu().numpy().squeeze()
 if phong_shading:
 	mesh = vtkplotter.mesh.Mesh([vertices, faces]).computeNormals().phong()
 else:
-	mesh = vtkplotter.mesh.Mesh([vertices, faces]).flat()
+	mesh = vtkplotter.mesh.Mesh([vertices, faces]).computeNormals().phong()#flat()
 
 vp.addSlider2D(flame_shape_slider, xmin=-1., xmax=1., value=0, pos=1, title="Flame shape")
 vp.addSlider2D(flame_expr_slider, xmin=-1, xmax=1, value=0, pos=2, title="Flame expression")
