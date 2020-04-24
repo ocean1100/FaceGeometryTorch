@@ -22,7 +22,8 @@ def update_flame():
 	vertices = vertice[0].detach().cpu().numpy().squeeze()
 	
 
-	#mesh.points(vertices) # This line can be used when there is no phong shading, otherwise vtkplotter crush (therefore we have the lines below, though they cause vtkplotter to "blink")
+	mesh.points(vertices) # This line can be used when there is no phong shading, otherwise vtkplotter crush (therefore we have the lines below, though they cause vtkplotter to "blink")
+	"""
 	global mesh
 	vp.clear(mesh)
 	# attempt to solve a vtkplotter bugs with phong shading
@@ -33,6 +34,7 @@ def update_flame():
 	vp.clear(mesh)
 	mesh = mesh_n
 	interactive()
+	"""
 	
 def flame_shape_slider(widget, event):
 	value = widget.GetRepresentation().GetValue()
@@ -99,7 +101,7 @@ vertices = vertice[0].detach().cpu().numpy().squeeze()
 if phong_shading:
 	mesh = vtkplotter.mesh.Mesh([vertices, faces]).computeNormals().phong()
 else:
-	mesh = vtkplotter.mesh.Mesh([vertices, faces]).computeNormals().phong()#flat()
+	mesh = vtkplotter.mesh.Mesh([vertices, faces]).flat()#computeNormals().phong()#flat()
 
 vp.addSlider2D(flame_shape_slider, xmin=-1., xmax=1., value=0, pos=1, title="Flame shape")
 vp.addSlider2D(flame_expr_slider, xmin=-1, xmax=1, value=0, pos=2, title="Flame expression")

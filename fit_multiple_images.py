@@ -118,7 +118,7 @@ def save_mesh(result_mesh, result_scale, out_path, target_img_path):
 
 
 def load_data_and_copy_to_output_folder(inp, image_viewpoint_ending, output_folder, max_images):
-    output_file_paths = [os.path.join(output_folder, os.path.basename(inp) + str(i) + '.png') for i in range(max_images)]
+    output_file_paths = [os.path.join(output_folder, os.path.basename(inp) + str(i) + 'orig.png') for i in range(max_images)]
     # Get all images
     if os.path.isdir(inp):
         input_images = [os.path.join(inp,img) for img in os.listdir(inp) if img.endswith(image_viewpoint_ending)]
