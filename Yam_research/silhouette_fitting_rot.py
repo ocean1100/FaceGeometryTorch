@@ -1,20 +1,29 @@
+import torch
 from imutils import face_utils
 import dlib
 from utils.weak_perspective_camera import *
+from flame import FlameLandmarks
+import torch.nn as nn
 from pytorch3d.structures import Meshes, Textures
 import scipy.ndimage
 import matplotlib.pyplot as plt
 # 3D transformations functions
+from pytorch3d.transforms import Rotate, Translate
 # rendering components
 from pytorch3d.renderer import (
-    look_at_rotation
+    OpenGLPerspectiveCameras, look_at_view_transform, look_at_rotation,
+    RasterizationSettings, MeshRenderer, MeshRasterizer, BlendParams,
+    SoftSilhouetteShader, HardPhongShader, PointLights, TexturedSoftPhongShader,
+    Materials
 )
 import scipy.ndimage
+import torchvision
+from pytorch3d.transforms.so3 import so3_exponential_map
 
 FIT_2D_DEBUG_MODE = False
 
 
-def camera_calibration(flamelayer, target_silhouette, cam_pos, optimizer,renderer):
+def camera_calibration(flamelayer, target_silhouette, log_R, T, optimizer, renderer):
     '''
     Fit FLAME to 2D landmarks
     :param flamelayer           Flame parametric model
@@ -31,6 +40,7 @@ def camera_calibration(flamelayer, target_silhouette, cam_pos, optimizer,rendere
 
     # Set the cuda device
     device = torch.device("cuda:0")
+
     verts, _, _ = flamelayer()
     verts = verts.detach()
     # Initialize each vertex to be white in color.
@@ -38,17 +48,18 @@ def camera_calibration(flamelayer, target_silhouette, cam_pos, optimizer,rendere
     textures = Textures(verts_rgb=verts_rgb.to(device))
     faces = torch.tensor(np.int32(flamelayer.faces), dtype=torch.long).cuda()
 
-    mesh = Meshes(
+    my_mesh = Meshes(
         verts=[verts.to(device)],
         faces=[faces.to(device)],
         textures=textures
     )
-    silhouette_err = SilhouetteErr(mesh, renderer, target_silhouette)
+
+    silhouette_err = SilhouetteErr(my_mesh, renderer, target_silhouette)
 
     def fit_closure():
         if torch.is_grad_enabled():
             optimizer.zero_grad()
-        loss, sil = silhouette_err.calc(cam_pos)
+        loss, sil = silhouette_err.calc(log_R, T)
 
         obj = loss
         # print(loss)
@@ -66,7 +77,7 @@ def camera_calibration(flamelayer, target_silhouette, cam_pos, optimizer,rendere
         if FIT_2D_DEBUG_MODE:
             print(str)
 
-    loss, sil = silhouette_err.calc(cam_pos)
+    loss, sil = silhouette_err.calc(log_R, T)
     sil1 = sil[..., 3].detach().squeeze().cpu().numpy()
     sil2 = silhouette_err.image_ref.detach().cpu().numpy()
     plt.subplot(121)
@@ -74,13 +85,11 @@ def camera_calibration(flamelayer, target_silhouette, cam_pos, optimizer,rendere
     plt.subplot(122)
     plt.imshow(sil2)
     plt.show()
-    print(cam_pos, loss)
     log('Optimizing rigid transformation')
     log_obj('Before optimization obj')
     optimizer.step(fit_closure)
     log_obj('After optimization obj')
-    loss, sil = silhouette_err.calc(cam_pos)
-
+    loss, sil = silhouette_err.calc(log_R, T)
     sil1 = sil[..., 3].detach().squeeze().cpu().numpy()
     sil2 = silhouette_err.image_ref.detach().cpu().numpy()
     plt.subplot(121)
@@ -88,12 +97,7 @@ def camera_calibration(flamelayer, target_silhouette, cam_pos, optimizer,rendere
     plt.subplot(122)
     plt.imshow(sil2)
     plt.show()
-    R = look_at_rotation(cam_pos[None, :], device=device)  # (1, 3, 3)
-    T = -torch.bmm(R.transpose(1, 2), cam_pos[None, :, None])[:, :, 0]  # (1, 3)
-    print('R,T')
-    print(R)
-    print(T)
-    return cam_pos
+    return so3_exponential_map(log_R), T
 
 
 def get_face_detector_and_landmarks_predictor():
@@ -139,12 +143,10 @@ class SilhouetteErr():
         self.renderer = renderer
         self.image_ref = torch.from_numpy((image_ref).astype(np.float32)).to(meshes.device)
 
-    def calc(self, cam_pos):
+    def calc(self, log_R, T):
         # Render the image using the updated camera position. Based on the new position of the
         # camer we calculate the rotation and translation matrices
-        R = look_at_rotation(cam_pos[None, :], device=self.device)  # (1, 3, 3)
-        T = -torch.bmm(R.transpose(1, 2), cam_pos[None, :, None])[:, :, 0]  # (1, 3)
-
+        R = so3_exponential_map(log_R)
         image = self.renderer.render(self.meshes, R, T)
 
         loss = torch.sum((image[..., 3] - self.image_ref) ** 2)
