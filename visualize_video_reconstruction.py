@@ -17,6 +17,7 @@ def show_hide_texture():
 
 def animate_meshes():
     mesh = load_mesh_obj_and_texture(args.input_folder, meshes[0])
+    #mesh.lighting('default', ambient, diffuse, specular)#, specularPower, specularColor)
     show(mesh, interactive=0)
     for mesh_p in meshes:
         mesh = load_mesh_obj_and_texture(args.input_folder, mesh_p)
@@ -27,10 +28,13 @@ def load_mesh_obj_and_texture(input_folder, mesh):
     obj_path = os.path.join(input_folder,mesh)
     text_path = os.path.splitext(obj_path)[0] + '.png'
     global show_texture
+    ambient, diffuse, specular = 1.,0,0
     if (show_texture):
-        return vp.load(obj_path).clean().computeNormals().phong().texture(text_path)    
+        mesh = vp.load(obj_path).clean().computeNormals().phong().texture(text_path)    
+        mesh.lighting('default', ambient, diffuse, specular)#, specularPower, specularColor)
     else:
-        return vp.load(obj_path).clean().computeNormals().phong()
+        mesh = vp.load(obj_path).clean().computeNormals().phong()
+    return mesh
 
 
 def natural_sort(l): 
@@ -49,7 +53,7 @@ if __name__ == '__main__':
     # sort the list (such that 10 will be after 9 and not after 1.. as it is by string sorting)
     meshes = natural_sort(meshes)
 
-    vp = Plotter(axes=0)
+    vp = Plotter(axes=0,bg='black')
     
     bu = vp.addButton(
     animate_meshes,
