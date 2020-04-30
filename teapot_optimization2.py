@@ -140,7 +140,7 @@ phong_renderer = MeshRenderer(
 # Select the viewpoint using spherical angles
 distance = 0.3  # distance from camera to the object
 elevation = 0.5  # angle of elevation in degrees
-azimuth = 0.0  # No rotation so the camera is positioned on the +Z axis.
+azimuth = 180.0  # No rotation so the camera is positioned on the +Z axis.
 
 # Get the position of the camera based on the spherical angles
 R, T = look_at_view_transform(distance, elevation, azimuth, device=device)

@@ -5,6 +5,8 @@ from utils.weak_perspective_camera import *
 from utils.perspective_camera import *
 from flame import FlameLandmarks
 import matplotlib.pyplot as plt
+from Yam_research.utils.utils import Renderer,make_mesh
+from utils.landmarks_ploting import on_step
 
 FIT_2D_DEBUG_MODE = False
 
@@ -78,7 +80,6 @@ def fit_flame_to_2D_landmarks_perspectiv(flamelayer, cam, target_2d_lmks, optimi
         vertices, landmarks_3D, flame_regularizer_loss = flamelayer()
         obj1 = image_fit_loss(landmarks_3D)
         obj = obj1 + flame_regularizer_loss
-        print(obj)
         if obj.requires_grad:
             obj.backward()
         return obj
@@ -92,15 +93,13 @@ def fit_flame_to_2D_landmarks_perspectiv(flamelayer, cam, target_2d_lmks, optimi
         if FIT_2D_DEBUG_MODE:
             print(str)
 
-    target_2d_np = torch_target_2d_lmks.detach().cpu().numpy()
-    vertices, landmarks_3D, flame_regularizer_loss = flamelayer()
-    landmarks_2d = cam.transform_points(landmarks_3D)[:, :2]
-    landmarks_2d = landmarks_2d.detach().cpu().numpy().squeeze()
-    print(landmarks_3D)
-    print(cam.T)
-    plt.scatter(landmarks_2d[:, 0], landmarks_2d[:, 1])
-    plt.scatter(target_2d_np[:, 0], target_2d_np[:, 1])
-    plt.show()
+    # target_2d_np = torch_target_2d_lmks.detach().cpu().numpy()
+    # vertices, landmarks_3D, flame_regularizer_loss = flamelayer()
+    # landmarks_2d = cam.transform_points(landmarks_3D)[:, :2]
+    # landmarks_2d = landmarks_2d.detach().cpu().numpy().squeeze()
+    # plt.scatter(landmarks_2d[:, 0], landmarks_2d[:, 1])
+    # plt.scatter(target_2d_np[:, 0], target_2d_np[:, 1])
+    # plt.show()
 
     log('Optimizing rigid transformation')
     log_obj('Before optimization obj')
@@ -108,16 +107,13 @@ def fit_flame_to_2D_landmarks_perspectiv(flamelayer, cam, target_2d_lmks, optimi
     log_obj('After optimization obj')
 
     vertices, landmarks_3D, flame_regularizer_loss = flamelayer()
-    landmarks_2d = cam.transform_points(landmarks_3D)[:, :2]
-    landmarks_2d = landmarks_2d.detach().cpu().numpy().squeeze()
-
-    print('end optim')
-
-    print(cam.T)
-    plt.scatter(landmarks_2d[:, 0], landmarks_2d[:, 1])
-    plt.scatter(target_2d_np[:, 0], target_2d_np[:, 1])
-    plt.show()
     np_verts = vertices.detach().cpu().numpy().squeeze()
+
+    # landmarks_2d = cam.transform_points(landmarks_3D)[:, :2]
+    # landmarks_2d = landmarks_2d.detach().cpu().numpy().squeeze()
+    # plt.scatter(landmarks_2d[:, 0], landmarks_2d[:, 1])
+    # plt.scatter(target_2d_np[:, 0], target_2d_np[:, 1])
+    # plt.show()
 
     return np_verts
 
@@ -157,7 +153,7 @@ def get_2d_lmks(image: np.ndarray) -> np.ndarray:
     face_detector, face_landmarks_predictor = get_face_detector_and_landmarks_predictor()
     rect = dlib_get_face_rectangle(image, face_detector)
     target_2d_lmks = dlib_get_landmarks(image, rect, face_landmarks_predictor)
-    S = np.max(image.shape)
-    target_2d_lmks = -1 + (2 * target_2d_lmks + 1.0) / S
-    print('please add a type hint - ', type(target_2d_lmks))
+    # S = np.max(image.shape)
+    # target_2d_lmks_transformed = -1 + (2 * target_2d_lmks + 1.0) / S
+
     return target_2d_lmks
