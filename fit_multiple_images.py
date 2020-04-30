@@ -11,6 +11,7 @@ from psbody.mesh.meshviewer import MeshViewers
 from fitting.landmarks_fitting import *
 from utils.video import *
 from utils.render_mesh import *
+from utils.greenscreen import *
 import shutil
 import errno
 import time
@@ -117,7 +118,7 @@ def save_mesh(result_mesh, result_scale, out_path, target_img_path):
     np.save(os.path.join(out_path, os.path.splitext(os.path.basename(target_img_path))[0] + '_scale.npy'), result_scale)
 
 
-def load_data_and_copy_to_output_folder(inp, image_viewpoint_ending, output_folder, max_images):
+def load_data_and_copy_to_output_folder(inp, image_viewpoint_ending, output_folder, use_greenscreen, max_images):
     output_file_paths = [os.path.join(output_folder, os.path.basename(inp) + str(i) + 'orig.png') for i in range(max_images)]
     # Get all images
     if os.path.isdir(inp):
@@ -132,6 +133,8 @@ def load_data_and_copy_to_output_folder(inp, image_viewpoint_ending, output_fold
         frames = video_to_images(inp, max_images)
         output_file_paths = output_file_paths[:len(frames)]
         for i in range(len(output_file_paths)):
+            if (use_greenscreen):
+                frames[i] = greenscreen_bg_to_black(frames[i])
             cv2.imwrite(output_file_paths[i], frames[i])
     else:
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), config.input)
@@ -149,12 +152,13 @@ if __name__ == '__main__':
     # With shape matching before or without
     parser.add_argument('--save_shape', dest='save_shape', action='store_true')
     parser.add_argument('--show_live', dest='show_live', action='store_true')
+    parser.add_argument('--greenscreen', dest='greenscreen', action='store_true')
 
     config = get_config()
     config.batch_size = 1
     config.flame_model_path = './model/male_model.pkl'
 
-    images_p = load_data_and_copy_to_output_folder(config.input, config.image_viewpoint_ending, config.output_folder, config.max_images)
+    images_p = load_data_and_copy_to_output_folder(config.input, config.image_viewpoint_ending, config.output_folder, config.greenscreen, config.max_images)
 
     # uncomment the following to create a movie from the raw images (not reconstruction) 
     #save_images_in_video(images, config.input_folder, config.output_folder, config.image_viewpoint_ending)
