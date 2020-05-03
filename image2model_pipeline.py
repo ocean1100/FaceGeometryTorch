@@ -97,12 +97,6 @@ def image2model_pipline(texture_mapping, target_img_path, out_path):
             flamelayer.jaw_pose, flamelayer.neck_pose]
     fit_flame_silhouette_perspectiv(flamelayer, renderer, target_silh, all_flame_params_optimizer, device)
 
-    # model_sil = silhouette_renderer(my_mesh)
-    model_sil = renderer.render_sil(my_mesh)
-    model_sil = model_sil.detach().cpu().numpy().squeeze()
-    plt.imshow(model_sil.squeeze()[..., 3])
-    plt.grid(False)
-    plt.show()
 
 
 if __name__ == '__main__':

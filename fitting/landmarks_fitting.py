@@ -117,10 +117,8 @@ def fit_flame_to_2D_landmarks_perspectiv(flamelayer, cam, target_2d_lmks, optimi
 
 
 def fit_flame_silhouette_perspectiv(flamelayer, renderer, target_silh, optimizer, device):
-
     torch_target_silh = torch.from_numpy(target_silh).cuda()
     factor = 1  # TODO what shoud factor be???
-
 
     def image_fit_loss(my_mesh):
         silhouette = renderer.render_sil(my_mesh).squeeze()[..., 3]
@@ -133,7 +131,7 @@ def fit_flame_silhouette_perspectiv(flamelayer, renderer, target_silh, optimizer
         my_mesh = make_mesh(flamelayer, device)
         obj1 = image_fit_loss(my_mesh)
         obj = obj1 + flame_regularizer_loss
-        print('obj - ',obj)
+        print('obj - ', obj)
         if obj.requires_grad:
             obj.backward()
         return obj

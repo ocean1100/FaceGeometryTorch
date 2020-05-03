@@ -38,11 +38,9 @@ def on_step(mesh, renderer, target_img, target_lmks, opt_lmks, lmk_dist=0.0, sha
         for (x, y) in plt_opt_lmks:
             cv2.circle(rendered_img, (int(x), int(y)), 4, (0, 255, 0), -1)
 
-        # target_img = np.hstack((target_img, rendered_img[:,:,:3]))
+        target_img = np.hstack((target_img/255, rendered_img[:,:,:3]))
 
     cv2.imshow('target_img', target_img)
-    cv2.waitKey()
-    cv2.imshow('rendered img', rendered_img)
     cv2.waitKey()
 
     # cv2.imshow('img', target_img)
