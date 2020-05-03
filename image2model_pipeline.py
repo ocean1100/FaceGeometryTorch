@@ -5,7 +5,7 @@ from fitting.landmarks_fitting import *
 from fitting.silhouette_fitting import *
 from utils.perspective_camera import get_init_translation_from_lmks
 from pytorch3d.renderer import OpenGLPerspectiveCameras, look_at_view_transform, OpenGLOrthographicCameras
-from utils.landmarks_ploting import on_step
+from utils.model_ploting import plot_landmarks,plot_silhouette
 from Yam_research.utils.utils import CoordTransformer, zero_pad_img
 
 
@@ -73,7 +73,7 @@ def image2model_pipline(texture_mapping, target_img_path, out_path):
     renderer = Renderer(cam)
     my_mesh = make_mesh(flamelayer, device)
 
-    # on_step(my_mesh, renderer, target_img, target_2d_lmks, optim_lmks, lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0,
+    # plot_landmarks(my_mesh, renderer, target_img, target_2d_lmks, optim_lmks, lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0,
     #         neck_pose_reg=0.0, jaw_pose_reg=0.0, eyeballs_pose_reg=0.0)
 
     # Fit with all Flame parameters parameters
@@ -88,8 +88,8 @@ def image2model_pipline(texture_mapping, target_img_path, out_path):
     optim_lmks = optim_lmks.detach().cpu().numpy().squeeze()
     renderer = Renderer(cam)
     my_mesh = make_mesh(flamelayer, device)
-    on_step(my_mesh, renderer, target_img, target_2d_lmks, optim_lmks, lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0,
-            neck_pose_reg=0.0, jaw_pose_reg=0.0, eyeballs_pose_reg=0.0)
+    plot_landmarks(my_mesh, renderer, target_img, target_2d_lmks, optim_lmks, lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0,
+                   neck_pose_reg=0.0, jaw_pose_reg=0.0, eyeballs_pose_reg=0.0)
     all_flame_params_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500,
                                                    line_search_fn='strong_wolfe')
     target_silh = segment_img(target_img, 10)
@@ -97,6 +97,19 @@ def image2model_pipline(texture_mapping, target_img_path, out_path):
             flamelayer.jaw_pose, flamelayer.neck_pose]
     fit_flame_silhouette_perspectiv(flamelayer, renderer, target_silh, all_flame_params_optimizer, device)
 
+    plot_silhouette(my_mesh, renderer, target_silh)
+    # silhouete = renderer.render_sil(my_mesh)
+    # silhouete = silhouete.detach().cpu().numpy().squeeze()
+    # # image_ref = image_ref.cpu().numpy()
+    #
+    # plt.figure(figsize=(10, 10))
+    # plt.subplot(1, 2, 1)
+    # plt.imshow(silhouete.squeeze()[..., 3]-target_silh)  # only plot the alpha channel of the RGBA image
+    # plt.grid(False)
+    # plt.subplot(1, 2, 2)
+    # plt.imshow(target_silh)
+    # plt.grid(False)
+    # plt.show()
 
 
 if __name__ == '__main__':

@@ -6,7 +6,7 @@ from utils.perspective_camera import *
 from flame import FlameLandmarks
 import matplotlib.pyplot as plt
 from Yam_research.utils.utils import Renderer, make_mesh
-from utils.landmarks_ploting import on_step
+from utils.model_ploting import plot_landmarks
 
 FIT_2D_DEBUG_MODE = False
 

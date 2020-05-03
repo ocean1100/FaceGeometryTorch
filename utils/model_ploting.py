@@ -7,8 +7,8 @@ from utils.render_mesh import render_mesh
 from Yam_research.utils.utils import CoordTransformer
 
 
-def on_step(mesh, renderer, target_img, target_lmks, opt_lmks, lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0,
-            neck_pose_reg=0.0, jaw_pose_reg=0.0, eyeballs_pose_reg=0.0):
+def plot_landmarks(mesh, renderer, target_img, target_lmks, opt_lmks, lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0,
+                   neck_pose_reg=0.0, jaw_pose_reg=0.0, eyeballs_pose_reg=0.0):
     if lmk_dist > 0.0 or shape_reg > 0.0 or exp_reg > 0.0 or neck_pose_reg > 0.0 or jaw_pose_reg > 0.0 or eyeballs_pose_reg > 0.0:
         print('lmk_dist: %f, shape_reg: %f, exp_reg: %f, neck_pose_reg: %f, jaw_pose_reg: %f, eyeballs_pose_reg: %f' % (
             lmk_dist, shape_reg, exp_reg, neck_pose_reg, jaw_pose_reg, eyeballs_pose_reg))
@@ -26,8 +26,10 @@ def on_step(mesh, renderer, target_img, target_lmks, opt_lmks, lmk_dist=0.0, sha
     for (x, y) in plt_target_lmks:
         cv2.circle(target_img, (int(x), int(y)), 4, (0, 0, 255), -1)
 
+
     for (x, y) in plt_opt_lmks:
         cv2.circle(target_img, (int(x), int(y)), 4, (255, 0, 0), -1)
+
 
     if sys.version_info >= (3, 0):
         # rendered_img = render_mesh(Mesh(scale * verts, faces), height=target_img.shape[0], width=target_img.shape[1])
@@ -38,10 +40,23 @@ def on_step(mesh, renderer, target_img, target_lmks, opt_lmks, lmk_dist=0.0, sha
         for (x, y) in plt_opt_lmks:
             cv2.circle(rendered_img, (int(x), int(y)), 4, (0, 255, 0), -1)
 
-        target_img = np.hstack((target_img/255, rendered_img[:,:,:3]))
+        target_img = np.hstack((target_img/255 , rendered_img[:,:,:3]))
 
     cv2.imshow('target_img', target_img)
     cv2.waitKey()
 
-    # cv2.imshow('img', target_img)
-    # cv2.waitKey(10)
+
+def plot_silhouette(mesh, renderer, target_silh):
+    silhouete = renderer.render_sil(mesh)
+    silhouete = silhouete.detach().cpu().numpy().squeeze()
+
+    plt.figure(figsize=(10, 10))
+    plt.subplot(1, 2, 1)
+    plt.imshow(silhouete.squeeze()[..., 3] - target_silh)  # only plot the alpha channel of the RGBA image
+    plt.grid(False)
+    plt.subplot(1, 2, 2)
+    plt.imshow(target_silh)
+    plt.grid(False)
+    plt.show()
+    return None
+
