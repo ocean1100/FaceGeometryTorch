@@ -2,11 +2,27 @@ import os
 from torch.autograd import Variable
 from config import parser, get_config
 from fitting.landmarks_fitting import *
+from fitting.silhouette_fitting import *
 from utils.perspective_camera import get_init_translation_from_lmks
 from pytorch3d.renderer import OpenGLPerspectiveCameras, look_at_view_transform, OpenGLOrthographicCameras
 from utils.landmarks_ploting import on_step
 from Yam_research.utils.utils import CoordTransformer, zero_pad_img
 
+
+####################33
+
+from pytorch3d.io import load_obj
+
+# 3D transformations functions
+from pytorch3d.transforms import Rotate, Translate
+
+# rendering components
+from pytorch3d.renderer import (
+    OpenGLPerspectiveCameras, look_at_view_transform, look_at_rotation,
+    RasterizationSettings, MeshRenderer, MeshRasterizer, BlendParams,
+    SoftSilhouetteShader, HardPhongShader, PointLights
+)
+#########################
 
 def image2model_pipline(texture_mapping, target_img_path, out_path):
     if not os.path.exists(target_img_path):
@@ -19,6 +35,7 @@ def image2model_pipline(texture_mapping, target_img_path, out_path):
     # get and transform target 2d lmks
     target_img = cv2.imread(target_img_path)
     target_img = zero_pad_img(target_img)
+    target_img = cv2.resize(target_img, (1024, 1024))
     target_2d_lmks_oj = get_2d_lmks(target_img)
     # target_2d_lmks_oj[:, 0] = -target_2d_lmks_oj[:, 0]
     # target_2d_lmks_oj[:, 1] = target_img.shape[0] - target_2d_lmks_oj[:, 1]
@@ -32,7 +49,6 @@ def image2model_pipline(texture_mapping, target_img_path, out_path):
     distance = 0.3  # distance from camera to the object
     elevation = 0.0  # angle of elevation in degrees
     azimuth = 0.0  # No rotation so the camera is positioned on the +Z axis.
-
 
     # Get the position of the camera based on the spherical angles
     R, init_translation = look_at_view_transform(distance, elevation, azimuth, device=device)
@@ -57,8 +73,8 @@ def image2model_pipline(texture_mapping, target_img_path, out_path):
     renderer = Renderer(cam)
     my_mesh = make_mesh(flamelayer, device)
 
-    on_step(my_mesh, renderer, target_img, target_2d_lmks, optim_lmks, lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0,
-            neck_pose_reg=0.0, jaw_pose_reg=0.0, eyeballs_pose_reg=0.0)
+    # on_step(my_mesh, renderer, target_img, target_2d_lmks, optim_lmks, lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0,
+    #         neck_pose_reg=0.0, jaw_pose_reg=0.0, eyeballs_pose_reg=0.0)
 
     # Fit with all Flame parameters parameters
     vars = [flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params,
@@ -74,6 +90,19 @@ def image2model_pipline(texture_mapping, target_img_path, out_path):
     my_mesh = make_mesh(flamelayer, device)
     on_step(my_mesh, renderer, target_img, target_2d_lmks, optim_lmks, lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0,
             neck_pose_reg=0.0, jaw_pose_reg=0.0, eyeballs_pose_reg=0.0)
+    all_flame_params_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500,
+                                                   line_search_fn='strong_wolfe')
+    target_silh = segment_img(target_img, 10)
+    vars = [flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params,
+            flamelayer.jaw_pose, flamelayer.neck_pose]
+    fit_flame_silhouette_perspectiv(flamelayer, renderer, target_silh, all_flame_params_optimizer, device)
+
+    # model_sil = silhouette_renderer(my_mesh)
+    model_sil = renderer.render_sil(my_mesh)
+    model_sil = model_sil.detach().cpu().numpy().squeeze()
+    plt.imshow(model_sil.squeeze()[..., 3])
+    plt.grid(False)
+    plt.show()
 
 
 if __name__ == '__main__':

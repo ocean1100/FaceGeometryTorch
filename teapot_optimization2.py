@@ -213,17 +213,17 @@ for i in loop:
     if loss.item() < 200:
         break
 
-# Save outputs to create a GIF.
-# if i % 10 == 0:
-# 	R = look_at_rotation(model.camera_position[None, :], device=model.device)
-# 	T = -torch.bmm(R.transpose(1, 2), model.camera_position[None, :, None])[:, :, 0]  # (1, 3)
-# 	image = phong_renderer(meshes_world=model.meshes.clone(), R=R, T=T)
-# 	image = image[0, ..., :3].detach().squeeze().cpu().numpy()
-# 	image = img_as_ubyte(image)
-#
-# 	plt.figure()
-# 	plt.imshow(image[..., :3])
-# 	plt.title("iter: %d, loss: %0.2f" % (i, loss.data))
-# 	plt.grid("off")
-# 	plt.axis("off")
-# 	plt.show()
+    # Save outputs to create a GIF.
+    if i % 10 == 0:
+        R = look_at_rotation(model.camera_position[None, :], device=model.device)
+        T = -torch.bmm(R.transpose(1, 2), model.camera_position[None, :, None])[:, :, 0]  # (1, 3)
+        image = phong_renderer(meshes_world=model.meshes.clone(), R=R, T=T)
+        image = image[0, ..., :3].detach().squeeze().cpu().numpy()
+        image = img_as_ubyte(image)
+
+        plt.figure()
+        plt.imshow(image[..., :3])
+        plt.title("iter: %d, loss: %0.2f" % (i, loss.data))
+        plt.grid("off")
+        plt.axis("off")
+        plt.show()

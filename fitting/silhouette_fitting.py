@@ -157,6 +157,4 @@ def segment_img(image, thresh):
     bin_img = np.zeros(gray.shape)
     bin_img[mask] = 255
     silhouette = scipy.ndimage.morphology.binary_fill_holes(bin_img).astype(int)
-    # croped_silhouette = silhouette[:1024,300:1324]
-    croped_silhouette = silhouette[:1024, 300:1324]
-    return croped_silhouette
+    return silhouette

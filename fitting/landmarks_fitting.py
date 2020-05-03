@@ -5,7 +5,7 @@ from utils.weak_perspective_camera import *
 from utils.perspective_camera import *
 from flame import FlameLandmarks
 import matplotlib.pyplot as plt
-from Yam_research.utils.utils import Renderer,make_mesh
+from Yam_research.utils.utils import Renderer, make_mesh
 from utils.landmarks_ploting import on_step
 
 FIT_2D_DEBUG_MODE = False
@@ -44,8 +44,6 @@ def fit_flame_to_2D_landmarks(flamelayer, scale, target_2d_lmks, optimizer):
     def log(str):
         if FIT_2D_DEBUG_MODE:
             print(str)
-
-
 
     log('Optimizing rigid transformation')
     log_obj('Before optimization obj')
@@ -116,6 +114,44 @@ def fit_flame_to_2D_landmarks_perspectiv(flamelayer, cam, target_2d_lmks, optimi
     # plt.show()
 
     return np_verts
+
+
+def fit_flame_silhouette_perspectiv(flamelayer, renderer, target_silh, optimizer, device):
+
+    torch_target_silh = torch.from_numpy(target_silh).cuda()
+    factor = 1  # TODO what shoud factor be???
+
+
+    def image_fit_loss(my_mesh):
+        silhouette = renderer.render_sil(my_mesh).squeeze()[..., 3]
+        return torch.sum(torch.sub(silhouette, torch_target_silh) ** 2) / (factor ** 2)
+
+    def fit_closure():
+        if torch.is_grad_enabled():
+            optimizer.zero_grad()
+        _, _, flame_regularizer_loss = flamelayer()
+        my_mesh = make_mesh(flamelayer, device)
+        obj1 = image_fit_loss(my_mesh)
+        obj = obj1 + flame_regularizer_loss
+        print('obj - ',obj)
+        if obj.requires_grad:
+            obj.backward()
+        return obj
+
+    def log_obj(str):
+        if FIT_2D_DEBUG_MODE:
+            _, _, flame_regularizer_loss = flamelayer()
+            my_mesh = make_mesh(flamelayer, device)
+            print(str + ' obj = ', image_fit_loss(my_mesh))
+
+    def log(str):
+        if FIT_2D_DEBUG_MODE:
+            print(str)
+
+    log('Optimizing rigid transformation')
+    log_obj('Before optimization obj')
+    optimizer.step(fit_closure)
+    log_obj('After optimization obj')
 
 
 def get_face_detector_and_landmarks_predictor():
