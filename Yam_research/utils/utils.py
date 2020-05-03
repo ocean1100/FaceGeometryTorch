@@ -19,7 +19,7 @@ class Renderer():
 
         self.text_raster_settings = RasterizationSettings(
             image_size=1024,
-            blur_radius=0.0,
+            blur_radius=np.log(1. / 1e-4 - 1.) * self.blend_params.sigma,
             faces_per_pixel=1,
         )
         self.cameras = cameras

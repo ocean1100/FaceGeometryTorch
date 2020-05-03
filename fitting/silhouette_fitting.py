@@ -158,3 +158,10 @@ def segment_img(image, thresh):
     bin_img[mask] = 255
     silhouette = scipy.ndimage.morphology.binary_fill_holes(bin_img).astype(int)
     return silhouette
+
+def cut_silhoutte_wrt_lmks(silhoutte,landmarks):
+    lip_lmks = landmarks[58]
+    nose_lmks = landmarks[28]
+    torch.zeros()
+
+

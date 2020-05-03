@@ -78,6 +78,7 @@ def fit_flame_to_2D_landmarks_perspectiv(flamelayer, cam, target_2d_lmks, optimi
         vertices, landmarks_3D, flame_regularizer_loss = flamelayer()
         obj1 = image_fit_loss(landmarks_3D)
         obj = obj1 + flame_regularizer_loss
+        print(obj)
         if obj.requires_grad:
             obj.backward()
         return obj

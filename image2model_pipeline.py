@@ -5,9 +5,8 @@ from fitting.landmarks_fitting import *
 from fitting.silhouette_fitting import *
 from utils.perspective_camera import get_init_translation_from_lmks
 from pytorch3d.renderer import OpenGLPerspectiveCameras, look_at_view_transform, OpenGLOrthographicCameras
-from utils.model_ploting import plot_landmarks,plot_silhouette
+from utils.model_ploting import plot_landmarks, plot_silhouette
 from Yam_research.utils.utils import CoordTransformer, zero_pad_img
-
 
 ####################33
 
@@ -22,6 +21,8 @@ from pytorch3d.renderer import (
     RasterizationSettings, MeshRenderer, MeshRasterizer, BlendParams,
     SoftSilhouetteShader, HardPhongShader, PointLights
 )
+
+
 #########################
 
 def image2model_pipline(texture_mapping, target_img_path, out_path):
@@ -56,40 +57,32 @@ def image2model_pipline(texture_mapping, target_img_path, out_path):
     # Guess initial camera parameters (perspective = R,T)
     # init_translation = get_init_translation_from_lmks()
 
-    _, landmarks_3D, _ = flamelayer()
     T = Variable(init_translation.cuda(), requires_grad=True)
     cam = OpenGLPerspectiveCameras(T=T, R=R, device=device)
 
+    renderer = Renderer(cam)
+
     # Initial guess: fit by optimizing only rigid motion
     vars = [flamelayer.transl, flamelayer.global_rot]  # Optimize for global scale, translation and rotation
-    rigid_scale_optimizer = torch.optim.LBFGS(vars, tolerance_change=5e-6, max_iter=500, line_search_fn='strong_wolfe')
+    rigid_scale_optimizer = torch.optim.LBFGS(vars, tolerance_change=5e-6, max_iter=500)
     vertices = fit_flame_to_2D_landmarks_perspectiv(flamelayer, cam, target_2d_lmks,
                                                     rigid_scale_optimizer)
 
-    _, landmarks_3D, _ = flamelayer()
-    # plot landmarks over image and model
-    optim_lmks = cam.transform_points(landmarks_3D)[:, :2]
-    optim_lmks = optim_lmks.detach().cpu().numpy().squeeze()
-    renderer = Renderer(cam)
-    my_mesh = make_mesh(flamelayer, device)
-
-    # plot_landmarks(my_mesh, renderer, target_img, target_2d_lmks, optim_lmks, lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0,
-    #         neck_pose_reg=0.0, jaw_pose_reg=0.0, eyeballs_pose_reg=0.0)
-
+    #plotting
+    plot_landmarks(renderer, target_img, target_2d_lmks, flamelayer, cam, device
+                   , lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0, neck_pose_reg=0.0, jaw_pose_reg=0.0,
+                   eyeballs_pose_reg=0.0)
     # Fit with all Flame parameters parameters
     vars = [flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params,
             flamelayer.jaw_pose, flamelayer.neck_pose]
-    all_flame_params_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500)
-    vertices = fit_flame_to_2D_landmarks_perspectiv(flamelayer, cam, target_2d_lmks,
-                                                    all_flame_params_optimizer)
+    all_flame_params_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500,
+                                                   line_search_fn='strong_wolfe')
+    fit_flame_to_2D_landmarks_perspectiv(flamelayer, cam, target_2d_lmks, all_flame_params_optimizer)
 
-    # plot landmarks over image and model
-    optim_lmks = cam.transform_points(landmarks_3D)[:, :2]
-    optim_lmks = optim_lmks.detach().cpu().numpy().squeeze()
-    renderer = Renderer(cam)
-    my_mesh = make_mesh(flamelayer, device)
-    plot_landmarks(my_mesh, renderer, target_img, target_2d_lmks, optim_lmks, lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0,
-                   neck_pose_reg=0.0, jaw_pose_reg=0.0, eyeballs_pose_reg=0.0)
+    # plotting
+    plot_landmarks(renderer, target_img, target_2d_lmks, flamelayer, cam, device
+                   , lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0, neck_pose_reg=0.0, jaw_pose_reg=0.0,
+                   eyeballs_pose_reg=0.0)
     all_flame_params_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500,
                                                    line_search_fn='strong_wolfe')
     target_silh = segment_img(target_img, 10)
@@ -97,19 +90,8 @@ def image2model_pipline(texture_mapping, target_img_path, out_path):
             flamelayer.jaw_pose, flamelayer.neck_pose]
     fit_flame_silhouette_perspectiv(flamelayer, renderer, target_silh, all_flame_params_optimizer, device)
 
-    plot_silhouette(my_mesh, renderer, target_silh)
-    # silhouete = renderer.render_sil(my_mesh)
-    # silhouete = silhouete.detach().cpu().numpy().squeeze()
-    # # image_ref = image_ref.cpu().numpy()
-    #
-    # plt.figure(figsize=(10, 10))
-    # plt.subplot(1, 2, 1)
-    # plt.imshow(silhouete.squeeze()[..., 3]-target_silh)  # only plot the alpha channel of the RGBA image
-    # plt.grid(False)
-    # plt.subplot(1, 2, 2)
-    # plt.imshow(target_silh)
-    # plt.grid(False)
-    # plt.show()
+
+    plot_silhouette(flamelayer, renderer, target_silh,device)
 
 
 if __name__ == '__main__':
