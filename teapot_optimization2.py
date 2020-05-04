@@ -36,6 +36,7 @@ from pytorch3d.renderer import (
     SoftSilhouetteShader, HardPhongShader, PointLights
 )
 from fitting.silhouette_fitting import segment_img
+from Yam_research.utils.utils import make_mesh
 import cv2
 
 # Set the cuda device
@@ -44,7 +45,7 @@ torch.cuda.set_device(device)
 
 config = get_config_with_default_args()
 config.batch_size = 1
-config.flame_model_path = './model/male_model.pkl'
+config.flame_model_path = 'model/male_model.pkl'
 
 # Load the obj and ignore the textures and materials.
 # verts, faces_idx, _ = load_obj("./data/teapot.obj")
@@ -63,7 +64,7 @@ print(type(faces))
 print(type(textures))
 
 # Create a Meshes object for the teapot. Here we have only one mesh in the batch.
-teapot_mesh = Meshes(
+face_mesh_alt = Meshes(
     verts=[verts.to(device)],
     faces=[faces.to(device)],
     textures=textures
@@ -74,6 +75,10 @@ teapot_mesh = Meshes(
 # config.flame_model_path = './model/male_model.pkl'
 # config.use_3D_translation = True # could be removed, depending on the camera model
 # config.use_face_contour = False
+
+image_ref_loaded = cv2.imread('./data/bareteeth.000001.26_C.jpg')
+image_ref_loaded = cv2.resize(image_ref_loaded, (256, 256))
+image_ref_loaded = segment_img(image_ref_loaded, 10)
 
 flamelayer = FlameLandmarks(config)
 flamelayer.cuda()
@@ -146,7 +151,7 @@ azimuth = 180.0  # No rotation so the camera is positioned on the +Z axis.
 R, T = look_at_view_transform(distance, elevation, azimuth, device=device)
 
 # Select the viewpoint using spherical angles
-distance = 3  # distance from camera to the object
+distance = 0.3  # distance from camera to the object
 elevation = 5  # angle of elevation in degrees
 azimuth = 0.0  # No rotation so the camera is positioned on the +Z axis.
 
@@ -154,15 +159,77 @@ azimuth = 0.0  # No rotation so the camera is positioned on the +Z axis.
 R, T = look_at_view_transform(distance, elevation, azimuth, device=device)
 
 # Render the teapot providing the values of R and T.
-silhouete = silhouette_renderer(meshes_world=teapot_mesh, R=R, T=T)
-image_ref = phong_renderer(meshes_world=teapot_mesh, R=R, T=T)
+silhouete = silhouette_renderer(meshes_world=face_mesh, R=R, T=T)
+
+# image_ref = phong_renderer(meshes_world=teapot_mesh, R=R, T=T)
 # silhouete = silhouette_renderer(meshes_world=face_mesh, R=R, T=T)
-# image_ref = phong_renderer(meshes_world=face_mesh, R=R, T=T)
+image_ref = phong_renderer(meshes_world=face_mesh, R=R, T=T)
 
+# image_ref = image_ref.cpu().detach().numpy()
+image_ref = image_ref_loaded
+
+print('im ref sum', np.sum(image_ref))
 silhouete = silhouete.cpu().detach().numpy()
-image_ref = image_ref.cpu().detach().numpy()
 
 
+#############################################################################
+# # LBFGS OPTIMIZATION
+# image_ref_torch = torch.from_numpy((image_ref != 0).astype(np.float32)).to(device)
+# camera_position = nn.Parameter(
+#             torch.from_numpy(np.array([.0, 0.9, +.5], dtype=np.float32)).to(face_mesh_alt.device))
+# vars = [camera_position]  # Optimize for global scale, translation and rotation
+# rigid_scale_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500, line_search_fn='strong_wolfe')
+#
+# factor = 1
+#
+#
+# def image_fit_loss(face_mesh_alt):
+#     R = look_at_rotation(camera_position[None, :], device=device)  # (1, 3, 3)
+#     T = -torch.bmm(R.transpose(1, 2), camera_position[None, :, None])[:, :, 0]  # (1, 3)
+#     silhouette = silhouette_renderer(meshes_world=face_mesh_alt.clone(), R=R, T=T).squeeze()[..., 3]
+#     return torch.sum(torch.sub(silhouette, image_ref_torch) ** 2) / (factor ** 2)
+#
+#
+# def fit_closure():
+#     if torch.is_grad_enabled():
+#         rigid_scale_optimizer.zero_grad()
+#     # _, _, flame_regularizer_loss = flamelayer()
+#     my_mesh = make_mesh(flamelayer, device)
+#     obj1 = image_fit_loss(my_mesh)
+#     obj = obj1 #+ flame_regularizer_loss
+#     print(obj)
+#     if obj.requires_grad:
+#         obj.backward()
+#     return obj
+#
+#
+# #print image
+# R = look_at_rotation(camera_position[None, :], device=device)
+# T = -torch.bmm(R.transpose(1, 2), camera_position[None, :, None])[:, :, 0]  # (1, 3)
+# image = silhouette_renderer(meshes_world=face_mesh_alt.clone(), R=R, T=T)
+# image = image[..., 3].detach().squeeze().cpu().numpy()
+# plt.subplot(121)
+# plt.imshow(image)
+# plt.subplot(122)
+# plt.imshow(image_ref)
+# plt.show()
+#
+# # plot_silhouette(flamelayer, renderer, image_ref, device)
+# print('preoptimization sihouette')
+# rigid_scale_optimizer.step(fit_closure)
+# # plot_silhouette(flamelayer, renderer, image_ref, device)
+# print('first optimization attempt')
+#
+# #print image
+# R = look_at_rotation(camera_position[None, :], device=device)
+# T = -torch.bmm(R.transpose(1, 2), camera_position[None, :, None])[:, :, 0]  # (1, 3)
+# image = silhouette_renderer(meshes_world=face_mesh_alt.clone(), R=R, T=T)
+# image = image[0, ..., 3].detach().squeeze().cpu().numpy()
+# plt.subplot(121)
+# plt.imshow(image)
+# plt.subplot(122)
+# plt.imshow(image_ref)
+# plt.show()
 #############################################################################
 class Model(nn.Module):
     def __init__(self, meshes, renderer, image_ref):
@@ -172,7 +239,8 @@ class Model(nn.Module):
         self.renderer = renderer
 
         # Get the silhouette of the reference RGB image by finding all the non zero values.
-        image_ref = torch.from_numpy((image_ref[..., :3].max(-1) != 0).astype(np.float32))
+        # image_ref = torch.from_numpy((image_ref[..., :3].max(-1) != 0).astype(np.float32))
+        image_ref = torch.from_numpy((image_ref != 0).astype(np.float32))
         self.register_buffer('image_ref', image_ref)
 
         # Create an optimizable parameter for the x, y, z position of the camera.
@@ -194,36 +262,86 @@ class Model(nn.Module):
 
 ####################################################################################################
 
+print('loop optimization ')
+# We will save images periodically and compose them into a GIF.
+filename_output = "Results/teapot_optimization_demo.gif"
+writer = imageio.get_writer(filename_output, mode='I', duration=0.3)
+
 # Initialize a model using the renderer, mesh and reference image
-model = Model(meshes=teapot_mesh, renderer=silhouette_renderer, image_ref=image_ref).to(device)
+model = Model(meshes=face_mesh_alt, renderer=silhouette_renderer, image_ref=image_ref).to(device)
 # model = Model(meshes=face_mesh, renderer=silhouette_renderer, image_ref=image_ref).to(device)
 
 # Create an optimizer. Here we are using Adam and we pass in the parameters of the model
-optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
+# optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
+
+optimizer = torch.optim.LBFGS(model.parameters(), max_iter=1, tolerance_change=1e-7, line_search_fn='strong_wolfe')
+image_ref_torch = torch.from_numpy((image_ref != 0).astype(np.float32)).to(device)
+factor = 1
+
+
+def image_fit_loss(face_mesh_alt):
+    R = look_at_rotation(model.camera_position[None, :], device=device)  # (1, 3, 3)
+    T = -torch.bmm(R.transpose(1, 2), model.camera_position[None, :, None])[:, :, 0]  # (1, 3)
+    silhouette = silhouette_renderer(meshes_world=face_mesh_alt.clone(), R=R, T=T).squeeze()[..., 3]
+    return torch.sum(torch.sub(silhouette, image_ref_torch) ** 2) / (factor ** 2)
+
+
+def fit_closure():
+    if torch.is_grad_enabled():
+        optimizer.zero_grad()
+    # _, _, flame_regularizer_loss = flamelayer()
+    my_mesh = make_mesh(flamelayer, device)
+    obj1 = image_fit_loss(my_mesh)
+    obj = obj1  # + flame_regularizer_loss
+    print(obj)
+    if obj.requires_grad:
+        obj.backward()
+    return obj
+
+
 loop = tqdm_notebook(range(200))
 for i in loop:
-    print(i)
     optimizer.zero_grad()
     loss, _ = model()
     loss.backward()
-    optimizer.step()
+    # optimizer.step()
+    optimizer.step(fit_closure)
 
     loop.set_description('Optimizing (loss %.4f)' % loss.data)
 
     if loss.item() < 200:
         break
-
+    print(i)
     # Save outputs to create a GIF.
     if i % 10 == 0:
         R = look_at_rotation(model.camera_position[None, :], device=model.device)
         T = -torch.bmm(R.transpose(1, 2), model.camera_position[None, :, None])[:, :, 0]  # (1, 3)
-        image = phong_renderer(meshes_world=model.meshes.clone(), R=R, T=T)
-        image = image[0, ..., :3].detach().squeeze().cpu().numpy()
+        image = silhouette_renderer(meshes_world=model.meshes.clone(), R=R, T=T)
+        image = image[..., 3].detach().squeeze().cpu().numpy()
         image = img_as_ubyte(image)
+        writer.append_data(image)
 
-        plt.figure()
-        plt.imshow(image[..., :3])
+        plt.subplot(121)
+        plt.imshow(image)
         plt.title("iter: %d, loss: %0.2f" % (i, loss.data))
         plt.grid("off")
         plt.axis("off")
+        plt.subplot(122)
+
+        # silh_ref = torch.from_numpy((image_ref[..., :3].max(-1) != 0).astype(np.float32)).squeeze()
+        # plt.imshow(silh_ref)
+        plt.imshow(image_ref)
+
+        plt.grid("off")
+        plt.axis("off")
+
         plt.show()
+
+plt.subplot(121)
+plt.imshow(image[..., :3])
+plt.title("iter: %d, loss: %0.2f" % (i, loss.data))
+plt.grid("off")
+plt.axis("off")
+plt.subplot(122)
+plt.show()
+writer.close()

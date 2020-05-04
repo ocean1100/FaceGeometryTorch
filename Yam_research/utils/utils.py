@@ -19,7 +19,7 @@ class Renderer():
 
         self.text_raster_settings = RasterizationSettings(
             image_size=1024,
-            blur_radius=np.log(1. / 1e-4 - 1.) * self.blend_params.sigma,
+            blur_radius=0.0,  # np.log(1. / 1e-4 - 1.) * self.blend_params.sigma,
             faces_per_pixel=1,
         )
         self.cameras = cameras
@@ -95,5 +95,5 @@ class CoordTransformer():
 
 def zero_pad_img(img):
     "make the image a rectangle w.r.t to large image edge"
-    zero_pad = np.zeros([max(img.shape)-1200, max(img.shape), 3],dtype=img.dtype)
-    return np.concatenate((img, zero_pad),axis=0)
+    zero_pad = np.zeros([max(img.shape) - 1200, max(img.shape), 3], dtype=img.dtype)
+    return np.concatenate((img, zero_pad), axis=0)
