@@ -16,6 +16,14 @@ parser.add_argument(
     default = './data/flame_static_embedding.pkl',
     help = 'Static landmark embeddings path for FLAME'
 )
+
+parser.add_argument(
+    '--dynamic_landmark_embedding_path',
+    type = str,
+    default = './model/flame_dynamic_embedding.npy',
+    help = 'Dynamic contour embedding path for FLAME'
+)
+
 parser.add_argument(
     '--batch_size',
     type = int,
