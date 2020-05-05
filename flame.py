@@ -15,7 +15,7 @@ class FlameLandmarks(nn.Module):
     This class generates a differentiable Flame vertices and 3D landmarks.
     TODO: This class is written to support batches, but in practice was only tested on optimizing a single Flame model at time.
     """
-    def __init__(self, config, weights = None):
+    def __init__(self, config, weights = None, use_face_contour = False):
         super(FlameLandmarks, self).__init__()
         print("Initializing FlameLandmarks")
         with open(config.flame_model_path, 'rb') as f:
@@ -26,6 +26,7 @@ class FlameLandmarks(nn.Module):
         self.weights = weights
         self.ref_vertices = None
         self.fixed_shape = None
+        self.use_face_contour = use_face_contour
 
         self.init_flame_parameters(config)
         self.init_flame_buffers(config)
@@ -153,7 +154,32 @@ class FlameLandmarks(nn.Module):
         self.register_buffer('lmk_bary_coords',
                              torch.tensor(lmk_bary_coords, dtype=self.dtype))
 
-    def get_vertices_and_3D_landmarks(self, ):
+        if self.use_face_contour:
+            conture_embeddings = np.load(config.dynamic_landmark_embedding_path,
+                allow_pickle=True, encoding='latin1')
+            conture_embeddings = conture_embeddings[()]
+            dynamic_lmk_faces_idx = np.array(conture_embeddings['lmk_face_idx']).astype(np.int64)
+            dynamic_lmk_faces_idx = torch.tensor(
+                dynamic_lmk_faces_idx,
+                dtype=torch.long)
+            self.register_buffer('dynamic_lmk_faces_idx',
+                                 dynamic_lmk_faces_idx)
+
+            dynamic_lmk_bary_coords = conture_embeddings['lmk_b_coords']
+            dynamic_lmk_bary_coords = torch.tensor(
+                dynamic_lmk_bary_coords, dtype=self.dtype)
+            self.register_buffer('dynamic_lmk_bary_coords',
+                                 dynamic_lmk_bary_coords)
+
+            neck_kin_chain = []
+            curr_idx = torch.tensor(self.NECK_IDX, dtype=torch.long)
+            while curr_idx != -1:
+                neck_kin_chain.append(curr_idx)
+                curr_idx = self.parents[curr_idx]
+            self.register_buffer('neck_kin_chain',
+                                 torch.stack(neck_kin_chain))
+
+    def get_vertices_and_3D_landmarks(self):
         pose_params = torch.cat([self.global_rot, self.jaw_pose], dim=1)
         shape_params = (self.fixed_shape if self.fixed_shape is not None else self.shape_params)
         betas = torch.cat([shape_params, self.expression_params], dim=1)
@@ -169,6 +195,17 @@ class FlameLandmarks(nn.Module):
 
         lmk_faces_idx = self.lmk_faces_idx.unsqueeze(dim=0)
         lmk_bary_coords = self.lmk_bary_coords.unsqueeze(dim=0)
+        if self.use_face_contour:
+
+            dyn_lmk_faces_idx, dyn_lmk_bary_coords = self._find_dynamic_lmk_idx_and_bcoords(
+                vertices, full_pose, self.dynamic_lmk_faces_idx,
+                self.dynamic_lmk_bary_coords,
+                self.neck_kin_chain, dtype=self.dtype)
+
+            lmk_faces_idx = torch.cat([dyn_lmk_faces_idx, lmk_faces_idx], 1)
+            lmk_bary_coords = torch.cat(
+                [dyn_lmk_bary_coords, lmk_bary_coords], 1)
+
         landmarks_3d = vertices2landmarks(vertices, self.faces_tensor,
                                              lmk_faces_idx,
                                              lmk_bary_coords)
@@ -193,6 +230,52 @@ class FlameLandmarks(nn.Module):
             lap_reg = self.weights['laplace']*smoothness_obj_from_ref(self.L, vertices, self.ref_vertices)#
             euc_reg = self.weights['euc_reg']*torch.mean(torch.norm(self.ref_vertices-vertices, dim=1))
             return flame_reg + lap_reg + euc_reg 
+
+    def _find_dynamic_lmk_idx_and_bcoords(self, vertices, pose, dynamic_lmk_faces_idx,
+                                         dynamic_lmk_b_coords,
+                                         neck_kin_chain, dtype=torch.float32):
+        """
+            Selects the face contour depending on the reletive position of the head
+            Input:
+                vertices: N X num_of_vertices X 3
+                pose: N X full pose
+                dynamic_lmk_faces_idx: The list of contour face indexes
+                dynamic_lmk_b_coords: The list of contour barycentric weights
+                neck_kin_chain: The tree to consider for the relative rotation
+                dtype: Data type
+            return:
+                The contour face indexes and the corresponding barycentric weights
+            Source: Modified for batches from https://github.com/vchoutas/smplx
+        """
+
+        batch_size = vertices.shape[0]
+
+        aa_pose = torch.index_select(pose.view(batch_size, -1, 3), 1,
+                                     neck_kin_chain)
+        rot_mats = batch_rodrigues(
+            aa_pose.view(-1, 3), dtype=dtype).view(batch_size, -1, 3, 3)
+
+        rel_rot_mat = torch.eye(3, device=vertices.device,
+                                dtype=dtype).unsqueeze_(dim=0).expand(batch_size, -1, -1)
+        for idx in range(len(neck_kin_chain)):
+            rel_rot_mat = torch.bmm(rot_mats[:, idx], rel_rot_mat)
+
+        y_rot_angle = torch.round(
+            torch.clamp(-rot_mat_to_euler(rel_rot_mat) * 180.0 / np.pi,
+                        max=39)).to(dtype=torch.long)
+        neg_mask = y_rot_angle.lt(0).to(dtype=torch.long)
+        mask = y_rot_angle.lt(-39).to(dtype=torch.long)
+        neg_vals = mask * 78 + (1 - mask) * (39 - y_rot_angle)
+        y_rot_angle = (neg_mask * neg_vals +
+                       (1 - neg_mask) * y_rot_angle)
+
+        dyn_lmk_faces_idx = torch.index_select(dynamic_lmk_faces_idx,
+                                               0, y_rot_angle)
+        dyn_lmk_b_coords = torch.index_select(dynamic_lmk_b_coords,
+                                              0, y_rot_angle)
+
+        return dyn_lmk_faces_idx, dyn_lmk_b_coords
+
 
 
 class FlameDecoder(nn.Module):
