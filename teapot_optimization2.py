@@ -38,6 +38,7 @@ from pytorch3d.renderer import (
 from fitting.silhouette_fitting import segment_img
 from Yam_research.utils.utils import make_mesh
 import cv2
+from torch.autograd import Variable
 
 # Set the cuda device
 device = torch.device("cuda:0")
@@ -231,6 +232,7 @@ silhouete = silhouete.cpu().detach().numpy()
 # plt.imshow(image_ref)
 # plt.show()
 #############################################################################
+# Model for camera position
 class Model(nn.Module):
     def __init__(self, meshes, renderer, image_ref):
         super().__init__()
@@ -252,7 +254,6 @@ class Model(nn.Module):
         # camer we calculate the rotation and translation matrices
         R = look_at_rotation(self.camera_position[None, :], device=self.device)  # (1, 3, 3)
         T = -torch.bmm(R.transpose(1, 2), self.camera_position[None, :, None])[:, :, 0]  # (1, 3)
-
         image = self.renderer(meshes_world=self.meshes.clone(), R=R, T=T)
 
         # Calculate the silhouette loss
@@ -261,6 +262,7 @@ class Model(nn.Module):
 
 
 ####################################################################################################
+
 
 print('loop optimization ')
 # We will save images periodically and compose them into a GIF.
@@ -274,49 +276,75 @@ model = Model(meshes=face_mesh_alt, renderer=silhouette_renderer, image_ref=imag
 # Create an optimizer. Here we are using Adam and we pass in the parameters of the model
 # optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
 
-optimizer = torch.optim.LBFGS(model.parameters(), max_iter=1, tolerance_change=1e-7, line_search_fn='strong_wolfe')
+camera_translation = Variable(torch.from_numpy(np.array([3.0, 6.9, +2.5], dtype=np.float32)).cuda(), requires_grad=True)
+vars = [camera_translation]
+optimizer = torch.optim.LBFGS(vars, max_iter=1500, tolerance_change=1e-7, line_search_fn='strong_wolfe')
 image_ref_torch = torch.from_numpy((image_ref != 0).astype(np.float32)).to(device)
 factor = 1
 
 
 def image_fit_loss(face_mesh_alt):
-    R = look_at_rotation(model.camera_position[None, :], device=device)  # (1, 3, 3)
-    T = -torch.bmm(R.transpose(1, 2), model.camera_position[None, :, None])[:, :, 0]  # (1, 3)
-    silhouette = silhouette_renderer(meshes_world=face_mesh_alt.clone(), R=R, T=T).squeeze()[..., 3]
-    return torch.sum(torch.sub(silhouette, image_ref_torch) ** 2) / (factor ** 2)
+    R = look_at_rotation(camera_translation[None, :], device=device)  # (1, 3, 3)
+    T = -torch.bmm(R.transpose(1, 2), camera_translation[None, :, None])[:, :, 0]  # (1, 3)
+    silhouette = silhouette_renderer(meshes_world=face_mesh_alt.clone(), R=R, T=T)
+    print(type(silhouete))
+    return torch.sum((silhouette[..., 3] - image_ref_torch) ** 2) / (factor ** 2)
 
 
 def fit_closure():
     if torch.is_grad_enabled():
         optimizer.zero_grad()
     # _, _, flame_regularizer_loss = flamelayer()
-    my_mesh = make_mesh(flamelayer, device)
-    obj1 = image_fit_loss(my_mesh)
-    obj = obj1  # + flame_regularizer_loss
-    print(obj)
+    # my_mesh = make_mesh(flamelayer, device)
+
+    loss = image_fit_loss(face_mesh_alt)
+    # obj = obj1 + flame_regularizer_loss
+
+    loss_model,_ = model()
+    print('loss - ', loss)
+    print('loss model - ', loss_model)
+    obj = loss
     if obj.requires_grad:
         obj.backward()
     return obj
 
+optimizer.step(fit_closure)
+loss = image_fit_loss(face_mesh_alt)
+R = look_at_rotation(camera_translation[None, :], device=model.device)
+T = -torch.bmm(R.transpose(1, 2), camera_translation[None, :, None])[:, :, 0]  # (1, 3)
+image = silhouette_renderer(meshes_world=face_mesh_alt.clone(), R=R, T=T)
+image = image[..., 3].detach().squeeze().cpu().numpy()
+image = img_as_ubyte(image)
+writer.append_data(image)
+print('long LBFGS')
+plt.subplot(121)
+plt.imshow(image)
+plt.title("iter: %d, loss: %0.2f" % (1, loss.data))
+plt.grid("off")
+plt.axis("off")
+plt.subplot(122)
+plt.imshow(image_ref)
+plt.grid("off")
+plt.axis("off")
+plt.show()
 
 loop = tqdm_notebook(range(200))
 for i in loop:
     optimizer.zero_grad()
-    loss, _ = model()
-    loss.backward()
+    # loss, _ = model()
+    # loss.backward()
     # optimizer.step()
     optimizer.step(fit_closure)
-
+    loss = image_fit_loss(face_mesh_alt)
     loop.set_description('Optimizing (loss %.4f)' % loss.data)
 
     if loss.item() < 200:
         break
-    print(i)
     # Save outputs to create a GIF.
     if i % 10 == 0:
-        R = look_at_rotation(model.camera_position[None, :], device=model.device)
-        T = -torch.bmm(R.transpose(1, 2), model.camera_position[None, :, None])[:, :, 0]  # (1, 3)
-        image = silhouette_renderer(meshes_world=model.meshes.clone(), R=R, T=T)
+        R = look_at_rotation(camera_translation[None, :], device=model.device)
+        T = -torch.bmm(R.transpose(1, 2), camera_translation[None, :, None])[:, :, 0]  # (1, 3)
+        image = silhouette_renderer(meshes_world=face_mesh_alt.clone(), R=R, T=T)
         image = image[..., 3].detach().squeeze().cpu().numpy()
         image = img_as_ubyte(image)
         writer.append_data(image)

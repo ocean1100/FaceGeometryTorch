@@ -33,7 +33,7 @@ class Renderer():
             ),
             shader=SoftSilhouetteShader(blend_params=self.blend_params)
         )
-        return self.renderer(meshes_world=meshes.clone())
+        return self.renderer(meshes_world=meshes)
 
     def render_phong(self, meshes):
         lights = PointLights(device=self.device, location=((0.0, 0.0, 2.0),))
@@ -53,9 +53,11 @@ class Renderer():
         return phong_renderer(meshes_world=meshes)
 
 
-def make_mesh(flamelayer, device):
+def make_mesh(flamelayer, detach):
+    device = torch.device("cuda:0")
     verts, _, _ = flamelayer()
-    verts = verts.detach()
+    if detach:
+        verts = verts.detach()
     # Initialize each vertex to be white in color.
     verts_rgb = torch.ones_like(verts)[None]  # (1, V, 3)
     textures = Textures(verts_rgb=verts_rgb.to(device))
