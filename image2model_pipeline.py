@@ -33,10 +33,13 @@ def image2model_pipline(texture_mapping, target_img_path, out_path):
     if not os.path.exists(out_path):
         os.makedirs(out_path)
 
+    RESULUTION = 256
+
+
     # get and transform target 2d lmks
     target_img = cv2.imread(target_img_path)
     target_img = zero_pad_img(target_img)
-    target_img = cv2.resize(target_img, (1024, 1024))
+    target_img = cv2.resize(target_img, (RESULUTION, RESULUTION))
     target_2d_lmks_oj = get_2d_lmks(target_img)
     coord_transformer = CoordTransformer(target_img.shape)
     target_2d_lmks = coord_transformer.screen2cam(target_2d_lmks_oj)
@@ -57,29 +60,25 @@ def image2model_pipline(texture_mapping, target_img_path, out_path):
 
     T = Variable(init_translation.cuda(), requires_grad=True)
     cam = OpenGLPerspectiveCameras(T=T, R=R, device=device)
-    renderer = Renderer(cam)
+    renderer = Renderer(cam,RESULUTION)
 
     fitter = Flame2ImageFitter(flamelayer, target_2d_lmks, target_silh, cam, renderer)
 
     # Initial guess: fit by optimizing only rigid motion
     vars = [flamelayer.transl, flamelayer.global_rot]  # Optimize for global scale, translation and rotation
-
     rigid_scale_optimizer = torch.optim.LBFGS(vars, tolerance_change=5e-6, max_iter=500)
     fitter.optimize_LBFGS(rigid_scale_optimizer)
-    # vertices = fit_flame_to_2D_landmarks_perspectiv(flamelayer, cam, target_2d_lmks,
-    #                                                 rigid_scale_optimizer)
-
     # plotting
     plot_landmarks(renderer, target_img, target_2d_lmks, flamelayer, cam, device
                    , lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0, neck_pose_reg=0.0, jaw_pose_reg=0.0,
                    eyeballs_pose_reg=0.0)
+
     # Fit with all Flame parameters parameters
     vars = [flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params,
             flamelayer.jaw_pose, flamelayer.neck_pose]
     all_flame_params_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500,
                                                    line_search_fn='strong_wolfe')
     fitter.optimize_LBFGS(all_flame_params_optimizer)
-    # fit_flame_to_2D_landmarks_perspectiv(flamelayer, cam, target_2d_lmks, all_flame_params_optimizer)
 
     # plotting
     plot_landmarks(renderer, target_img, target_2d_lmks, flamelayer, cam, device

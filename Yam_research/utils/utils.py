@@ -8,8 +8,9 @@ from pytorch3d.structures import Meshes, Textures
 
 
 class Renderer():
-    def __init__(self, cameras):
+    def __init__(self, cameras,resulution):
         self.device = torch.device("cuda:0")
+        self.resulution = resulution
         torch.cuda.set_device(self.device)
 
         # Initialize an OpenGL perspective camera.
@@ -18,7 +19,7 @@ class Renderer():
         self.blend_params = BlendParams(sigma=1e-4, gamma=1e-4)
 
         self.text_raster_settings = RasterizationSettings(
-            image_size=1024,
+            image_size=resulution,
             blur_radius=0.0,  # np.log(1. / 1e-4 - 1.) * self.blend_params.sigma,
             faces_per_pixel=1,
         )
@@ -38,7 +39,7 @@ class Renderer():
     def render_phong(self, meshes):
         lights = PointLights(device=self.device, location=((0.0, 0.0, 2.0),))
         raster_settings = RasterizationSettings(
-            image_size=1024,
+            image_size=self.resulution,
             blur_radius=0.0,
             faces_per_pixel=1,
         )
