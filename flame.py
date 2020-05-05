@@ -27,6 +27,7 @@ class FlameLandmarks(nn.Module):
         self.ref_vertices = None
         self.fixed_shape = None
         self.use_face_contour = use_face_contour
+        self.NECK_IDX = 1
 
         self.init_flame_parameters(config)
         self.init_flame_buffers(config)
