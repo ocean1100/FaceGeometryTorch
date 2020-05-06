@@ -5,14 +5,24 @@ from utils.weak_perspective_camera import *
 from utils.perspective_camera import *
 from flame import FlameLandmarks
 import matplotlib.pyplot as plt
-from Yam_research.utils.utils import Renderer, make_mesh
+from Yam_research.utils.utils import Renderer, make_mesh, CoordTransformer
 from utils.model_ploting import plot_landmarks
 
 FIT_2D_DEBUG_MODE = False
 
 
 class Flame2ImageFitter():
-    def __init__(self, flamelayer, target_2d_lmks, target_silh, cam, renderer):
+    def __init__(self, flamelayer, target_2d_lmks, target_silh, cam, renderer, silh_baunding_points_idxs):
+        '''
+        Flame2ImageFitter
+
+        :param flamelayer           Flame parametric model
+        :param target_2d_lmks       target 2D landmarks provided as (num_lmks x 3) matrix
+        :param target_silh          binary image with silhouette of referance image
+        :param cam                  camera model object
+        :renderer                   model to image rendering object
+        :silh_baunding_points       indeces of landmark bounding the silhuette roi (touple of 2 ints)
+        '''
         self._flamelayer = flamelayer
         self._target_2d_lmks = self._convert_lmks_to_torch(target_2d_lmks)
         self._target_silh = self._convert_silh_to_torch(target_silh)
@@ -20,6 +30,8 @@ class Flame2ImageFitter():
         self._renderer = renderer
         self.lmks_factor = self._calc_lmks_factor()
         self.silh_factor = self._calc_silh_factor()
+        self._silh_baunding_points_idxs = silh_baunding_points_idxs
+        self.coord_transformer = CoordTransformer(target_silh.shape)
 
     @staticmethod
     def _convert_lmks_to_torch(lmks_2d):
@@ -32,7 +44,7 @@ class Flame2ImageFitter():
         return torch_target_2d_lmks
 
     def _calc_lmks_factor(self):
-        return 1
+        return 100
 
     def _calc_silh_factor(self):
         return 1e-6
@@ -42,21 +54,40 @@ class Flame2ImageFitter():
         return self._flamelayer.weights['lmk'] * torch.sum((landmarks_2D - self._target_2d_lmks) ** 2)
 
     def _silh_fit_loss(self, my_mesh):
-        silhouette = self._renderer.render_sil(my_mesh).squeeze()[..., 3]
-        return torch.sum((silhouette - self._target_silh) ** 2)
+        silh = self._renderer.render_sil(my_mesh).squeeze()[..., 3]
+        _, landmarks_3D, _ = self._flamelayer()
+        uper_bound, lower_bound = self._calc_silh_low_up_bounds(landmarks_3D)
+        silh = self._cut_silh(silh, uper_bound, lower_bound)
+        return torch.sum((silh - self._target_silh) ** 2)
 
-    def optimize_LBFGS(self, optimizer):
+    def _calc_silh_low_up_bounds(self, landmarks_3D):
+        landmarks_2D = self._cam.transform_points(landmarks_3D)[:, :2]
+        landmarks_2D = self.coord_transformer.cam2screen(landmarks_2D)
+        landmarks_2D_y = landmarks_2D[1]
+
+        up_low_bounds = landmarks_2D_y[self._silh_baunding_points_idxs]
+
+        return int(up_low_bounds[0]), int(up_low_bounds[1])
+
+    def _cut_silh(self, silh, upper_bound, lower_bound):
+        mask = torch.zeros_like(silh)
+        mask[upper_bound:lower_bound, :] = 1
+        sniped_silh = silh * mask
+        return sniped_silh
+
+    def optimize_LBFGS(self, optimizer, lmks_factor, silh_factor):
 
         lmks_fit_loss = self._lmks_fit_loss
         silh_fit_loss = self._silh_fit_loss
         flamelayer = self._flamelayer
+
         def fit_closure():
             if torch.is_grad_enabled():
                 optimizer.zero_grad()
             _, landmarks_3D, flame_regularizer_loss = flamelayer()
 
             my_mesh = make_mesh(flamelayer, detach=False)
-            obj1 = lmks_fit_loss(landmarks_3D) + 0*silh_fit_loss(my_mesh)
+            obj1 = lmks_factor * lmks_fit_loss(landmarks_3D) + silh_factor * silh_fit_loss(my_mesh)
             obj = obj1 + flame_regularizer_loss
             print('obj - ', obj)
             if obj.requires_grad:
@@ -66,15 +97,15 @@ class Flame2ImageFitter():
         optimizer.step(fit_closure)
         return None
 
-    def optimize_Adam(self, optimizer):
+    def optimize_Adam(self, optimizer, lmks_factor, silh_factor):
         for i in range(200):
             optimizer.zero_grad()
 
             _, landmarks_3D, flame_regularizer_loss = self._flamelayer()
 
             my_mesh = make_mesh(self._flamelayer, detach=False)
-            obj1 = self.lmks_factor * self._lmks_fit_loss(landmarks_3D) +\
-                   self.silh_factor * self._silh_fit_loss(my_mesh)
+            obj1 = lmks_factor * self._lmks_fit_loss(landmarks_3D) + \
+                   silh_factor * self._silh_fit_loss(my_mesh)
 
             loss = obj1 + flame_regularizer_loss
             loss.backward()

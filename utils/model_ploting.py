@@ -59,7 +59,7 @@ def plot_silhouette(flamelayer, renderer, target_silh):
 
     plt.figure(figsize=(10, 10))
     plt.subplot(1, 2, 1)
-    plt.imshow(silhouete.squeeze()[..., 3])  # only plot the alpha channel of the RGBA image
+    plt.imshow(silhouete.squeeze()[..., 3]-target_silh)  # only plot the alpha channel of the RGBA image
     plt.grid(False)
     plt.subplot(1, 2, 2)
     plt.imshow(target_silh)
