@@ -4,7 +4,7 @@ from utils.mesh_io import write_obj
 import os
 from psbody.mesh.meshviewer import MeshViewers
 from fitting.landmarks_fitting import *
-from fitting.silhouette_fitting import *
+#from fitting.silhouette_fitting import *
 from utils.render_mesh import *
 
 def fit_geometry_and_texture_to_2D_landmarks(texture_mapping, target_img_path, out_path, dbg):
@@ -22,8 +22,9 @@ def fit_geometry_and_texture_to_2D_landmarks(texture_mapping, target_img_path, o
     face_detector, face_landmarks_predictor = get_face_detector_and_landmarks_predictor()
     rect = dlib_get_face_rectangle(target_img, face_detector)
     target_2d_lmks = dlib_get_landmarks(target_img, rect, face_landmarks_predictor)
+    print ('target_2d_lmks.shape = ', target_2d_lmks.shape)
 
-    flamelayer = FlameLandmarks(config)
+    flamelayer = FlameLandmarks(config, use_face_contour = True)
     flamelayer.cuda()
 
     # Guess initial camera parameters (weak perspective = only scale)

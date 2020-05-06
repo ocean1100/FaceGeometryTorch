@@ -298,7 +298,8 @@ def dlib_get_landmarks(target_img, rect, face_landmarks_predictor):
     '''
     gray = cv2.cvtColor(target_img, cv2.COLOR_BGR2GRAY)
     shape = face_landmarks_predictor(gray, rect)
-    landmarks2D = face_utils.shape_to_np(shape)[17:]
+    #landmarks2D = face_utils.shape_to_np(shape)[17:]
+    landmarks2D = face_utils.shape_to_np(shape)
     # Mirror landmark y-coordinates
     landmarks2D[:, 1] = target_img.shape[0] - landmarks2D[:, 1]
     return landmarks2D
