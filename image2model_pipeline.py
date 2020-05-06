@@ -33,8 +33,9 @@ def image2model_pipline(texture_mapping, target_img_path, out_path):
     if not os.path.exists(out_path):
         os.makedirs(out_path)
 
-    RESULUTION = 256
-
+    RESULUTION = 512
+    silh_lb_idx = 1
+    silh_ub_idx = 40
 
     # get and transform target 2d lmks
     target_img = cv2.imread(target_img_path)
@@ -44,7 +45,22 @@ def image2model_pipline(texture_mapping, target_img_path, out_path):
     coord_transformer = CoordTransformer(target_img.shape)
     target_2d_lmks = coord_transformer.screen2cam(target_2d_lmks_oj)
     target_silh = segment_img(target_img, 10)
-
+    silh_baunding_points_idxs = [silh_lb_idx,silh_ub_idx]
+    ####################3 get mid silhuette #########
+    print(target_2d_lmks.shape)
+    lmks_oj = coord_transformer.cam2screen(target_2d_lmks)
+    lmks = coord_transformer.cam2screen(target_2d_lmks[silh_baunding_points_idxs,:])
+    torch_target_silh = torch.from_numpy(target_silh).cuda()
+    mask = torch.zeros_like(torch_target_silh)
+    lmks_lb = int(lmks[0][1])
+    lmks_ub = int(lmks[1][1])
+    mask[lmks_lb:lmks_ub,:] = 1
+    torch_target_silh = torch_target_silh*mask
+    target_silh = torch_target_silh.detach().cpu().numpy()
+    plt.imshow(target_silh)
+    # plt.scatter(lmks_oj[:,0],lmks_oj[:,1],s=10,c='r')
+    # plt.show()
+    ###################################################
     flamelayer = FlameLandmarks(config)
     flamelayer.cuda()
     device = torch.device("cuda:0")
@@ -62,40 +78,41 @@ def image2model_pipline(texture_mapping, target_img_path, out_path):
     cam = OpenGLPerspectiveCameras(T=T, R=R, device=device)
     renderer = Renderer(cam,RESULUTION)
 
-    fitter = Flame2ImageFitter(flamelayer, target_2d_lmks, target_silh, cam, renderer)
+    fitter = Flame2ImageFitter(flamelayer, target_2d_lmks, target_silh, cam, renderer,silh_baunding_points_idxs)
 
     # Initial guess: fit by optimizing only rigid motion
     vars = [flamelayer.transl, flamelayer.global_rot]  # Optimize for global scale, translation and rotation
     rigid_scale_optimizer = torch.optim.LBFGS(vars, tolerance_change=5e-6, max_iter=500)
-    fitter.optimize_LBFGS(rigid_scale_optimizer)
+    fitter.optimize_LBFGS(rigid_scale_optimizer,1,0)
     # plotting
-    plot_landmarks(renderer, target_img, target_2d_lmks, flamelayer, cam, device
-                   , lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0, neck_pose_reg=0.0, jaw_pose_reg=0.0,
-                   eyeballs_pose_reg=0.0)
+    # plot_landmarks(renderer, target_img, target_2d_lmks, flamelayer, cam, device
+    #                , lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0, neck_pose_reg=0.0, jaw_pose_reg=0.0,
+    #                eyeballs_pose_reg=0.0)
 
     # Fit with all Flame parameters parameters
     vars = [flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params,
             flamelayer.jaw_pose, flamelayer.neck_pose]
     all_flame_params_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500,
                                                    line_search_fn='strong_wolfe')
-    fitter.optimize_LBFGS(all_flame_params_optimizer)
+    fitter.optimize_LBFGS(all_flame_params_optimizer,1,0)
 
     # plotting
-    plot_landmarks(renderer, target_img, target_2d_lmks, flamelayer, cam, device
-                   , lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0, neck_pose_reg=0.0, jaw_pose_reg=0.0,
-                   eyeballs_pose_reg=0.0)
+    # plot_landmarks(renderer, target_img, target_2d_lmks, flamelayer, cam, device
+    #                , lmk_dist=0.0, shape_reg=0.0, exp_reg=0.0, neck_pose_reg=0.0, jaw_pose_reg=0.0,
+    #                eyeballs_pose_reg=0.0)
 
     vars = [flamelayer.transl, flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params,
             flamelayer.jaw_pose, flamelayer.neck_pose]
-    # all_flame_params_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500,
-    #                                                line_search_fn='strong_wolfe')
+    all_flame_params_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500,
+                                                   line_search_fn='strong_wolfe')
     Adam_optimizer = torch.optim.Adam(vars, lr=0.05)
 
     print('silhouette fit')
 
 
     plot_silhouette(flamelayer, renderer, target_silh)
-    fitter.optimize_Adam(Adam_optimizer)
+    # fitter.optimize_Adam(Adam_optimizer,1,1e-4)
+    fitter.optimize_LBFGS(all_flame_params_optimizer,1,1e-4)
     plot_silhouette(flamelayer, renderer, target_silh)
 
 
