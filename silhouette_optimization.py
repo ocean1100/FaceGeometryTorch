@@ -58,12 +58,12 @@ verts, faces_idx, _ = load_obj(
 # Initialize each vertex to be white in color.
 flamelayer = FlameLandmarks(config)
 flamelayer.cuda()
-face_mesh = make_mesh(flamelayer, device)
+face_mesh = make_mesh(flamelayer, )
 ##########################################################################
 # Select the viewpoint using spherical angles
 distance = 0.3  # distance from camera to the object
 elevation = 0.5  # angle of elevation in degrees
-azimuth = 180.0  # No rotation so the camera is positioned on the +Z axis.
+azimuth = 0.0  # No rotation so the camera is positioned on the +Z axis.
 
 # Get the position of the camera based on the spherical angles
 R, T = look_at_view_transform(distance, elevation, azimuth, device=device)
@@ -80,7 +80,7 @@ image_ref = image_ref.cpu().detach().numpy()
 # Select the viewpoint using spherical angles
 distance = 0.9  # distance from camera to the object
 elevation = 0.5  # angle of elevation in degrees
-azimuth = 150.0  # No rotation so the camera is positioned on the +Z axis.
+azimuth = 0.0  # No rotation so the camera is positioned on the +Z axis.
 
 # Get the position of the camera based on the spherical angles
 R, T = look_at_view_transform(distance, elevation, azimuth, device=device)
@@ -90,47 +90,65 @@ cameras = OpenGLPerspectiveCameras(device=device, R=R, T=T)
 renderer = Renderer(cameras)
 
 # Render the teapot providing the values of R and T.
-silhouete = renderer.render_sil(face_mesh)
-silhouete = silhouete.cpu().detach().numpy()
+# silhouete = renderer.render_sil(face_mesh)
+# silhouete = silhouete.cpu().detach().numpy()
 
 #############################################################################
 # first optimiztion tryout
 
-vars = [flamelayer.transl, flamelayer.global_rot]  # Optimize for global scale, translation and rotation
-rigid_scale_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-7, max_iter=1500, line_search_fn='strong_wolfe')
+vars = [flamelayer.transl,flamelayer.global_rot, flamelayer.shape_params, flamelayer.expression_params,
+            flamelayer.jaw_pose, flamelayer.neck_pose]  # Optimize for global scale, translation and rotation
+#rigid_scale_optimizer = torch.optim.LBFGS(vars, tolerance_change=1e-15, tolerance_grad = 1e-10, max_iter=1e7, line_search_fn='strong_wolfe')
+rigid_scale_optimizer = torch.optim.LBFGS(vars, line_search_fn='strong_wolfe')
 
-torch_target_silh = torch.from_numpy((image_ref[..., :3].max(-1) != 0).astype(np.float32))
-torch_target_silh = torch_target_silh.cpu().detach().numpy()
-torch_target_silh = torch.from_numpy(torch_target_silh).cuda()
+image_ref = cv2.imread('./data/bareteeth.000001.26_C.jpg')
+image_ref = cv2.resize(image_ref, (1024, 1024))
+image_ref = segment_img(image_ref, 10)
+torch_target_silh = torch.from_numpy((image_ref != 0).astype(np.float32)).to(device)
 
 factor = 1  # TODO what shoud factor be???
 
 
+
 def image_fit_loss(my_mesh):
     silhouette = renderer.render_sil(my_mesh).squeeze()[..., 3]
-    return torch.sum(torch.sub(silhouette, torch_target_silh) ** 2) / (factor ** 2)
+    return torch.sum((silhouette- torch_target_silh) ** 2) / (factor ** 2)
 
 
 def fit_closure():
     if torch.is_grad_enabled():
         rigid_scale_optimizer.zero_grad()
     _, _, flame_regularizer_loss = flamelayer()
-    my_mesh = make_mesh(flamelayer, device)
-    obj1 = image_fit_loss(my_mesh)
-    obj = obj1 + flame_regularizer_loss
+    my_mesh = make_mesh(flamelayer, False)
+    obj = image_fit_loss(my_mesh) + flame_regularizer_loss
     print('obj - ', obj)
-    print(obj)
     if obj.requires_grad:
         obj.backward()
+        print ('flamelayer.transl.grad = ', flamelayer.transl.grad)
+        print('flamelayer.global_rot.grad = ', flamelayer.neck_pose.grad)
     return obj
 
 
 # plot_silhouette(flamelayer, renderer, image_ref, device)
-print('preoptimization sihouette')
-rigid_scale_optimizer.step(fit_closure)
+# print('preoptimization sihouette')
+# rigid_scale_optimizer.step(fit_closure)
 # plot_silhouette(flamelayer, renderer, image_ref, device)
-print('first optimization attempt')
+# print('first optimization attempt')
 
+#########################################################################
+plot_silhouette(flamelayer, renderer, image_ref)
+optimizer = torch.optim.Adam(vars, lr=0.05)
+loop = tqdm_notebook(range(200))
+for i in loop:
+    optimizer.zero_grad()
+    my_mesh = make_mesh(flamelayer, False)
+    loss = image_fit_loss(my_mesh)
+    loss.backward()
+    print(flamelayer.transl.grad)
+    optimizer.step()
+
+plot_silhouette(flamelayer, renderer, image_ref)
+#########################################################################
 
 ##############################################################################
 # second optimization tryout
@@ -217,7 +235,7 @@ class Model(nn.Module):
 
     def forward(self):
         # genrate model from flamelayer and render its silhouette
-        mesh = make_mesh(self.flamelayer,self.device)
+        mesh = make_mesh(self.flamelayer, )
         image = self.renderer(meshes_world=mesh.clone())
 
         # Calculate the silhouette loss
@@ -276,7 +294,7 @@ for i in loop:
 
     # Save outputs to create a GIF.
     if i % 10 == 0:
-        mesh = make_mesh(flamelayer, device)
+        mesh = make_mesh(flamelayer, )
         image = phong_renderer(model.meshes.clone())
         image = image[0, ..., :3].detach().squeeze().cpu().numpy()
         image = img_as_ubyte(image)

@@ -8,8 +8,9 @@ from pytorch3d.structures import Meshes, Textures
 
 
 class Renderer():
-    def __init__(self, cameras):
+    def __init__(self, cameras,resulution):
         self.device = torch.device("cuda:0")
+        self.resulution = resulution
         torch.cuda.set_device(self.device)
 
         # Initialize an OpenGL perspective camera.
@@ -18,7 +19,7 @@ class Renderer():
         self.blend_params = BlendParams(sigma=1e-4, gamma=1e-4)
 
         self.text_raster_settings = RasterizationSettings(
-            image_size=1024,
+            image_size=resulution,
             blur_radius=0.0,  # np.log(1. / 1e-4 - 1.) * self.blend_params.sigma,
             faces_per_pixel=1,
         )
@@ -33,12 +34,12 @@ class Renderer():
             ),
             shader=SoftSilhouetteShader(blend_params=self.blend_params)
         )
-        return self.renderer(meshes_world=meshes.clone())
+        return self.renderer(meshes_world=meshes)
 
     def render_phong(self, meshes):
         lights = PointLights(device=self.device, location=((0.0, 0.0, 2.0),))
         raster_settings = RasterizationSettings(
-            image_size=1024,
+            image_size=self.resulution,
             blur_radius=0.0,
             faces_per_pixel=1,
         )
@@ -53,9 +54,11 @@ class Renderer():
         return phong_renderer(meshes_world=meshes)
 
 
-def make_mesh(flamelayer, device):
+def make_mesh(flamelayer, detach):
+    device = torch.device("cuda:0")
     verts, _, _ = flamelayer()
-    verts = verts.detach()
+    if detach:
+        verts = verts.detach()
     # Initialize each vertex to be white in color.
     verts_rgb = torch.ones_like(verts)[None]  # (1, V, 3)
     textures = Textures(verts_rgb=verts_rgb.to(device))
